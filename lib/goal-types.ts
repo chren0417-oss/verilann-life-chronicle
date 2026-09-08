@@ -1,0 +1,8 @@
+export type GoalAction={action:string,arg:string,reason:string};
+export type Milestone={label:string,kind:'cash'|'cash_gain'|'skill'|'rank'|'trust'|'estate'|'health'|'actions',key:string,target:number};
+export type LifeGoal={id:string,request:string,interpretation:string,priorities:string[],assumptions:string[],milestones:Milestone[],createdDay:number,deadlineDay:number,startCash:number,status:'ready'|'paused'|'complete',pauseReason:string,actions:string[],lastReason:string,proposal:GoalAction|null};
+export function validLifeGoal(v:unknown):v is LifeGoal{
+ if(!v||typeof v!=='object')return false;const g=v as LifeGoal;
+ const str=(x:unknown,max=2000)=>typeof x==='string'&&x.length<=max;
+ return str(g.id,100)&&str(g.request)&&str(g.interpretation)&&Array.isArray(g.priorities)&&g.priorities.length<=6&&g.priorities.every(x=>str(x,300))&&Array.isArray(g.assumptions)&&g.assumptions.length<=6&&g.assumptions.every(x=>str(x,300))&&Array.isArray(g.milestones)&&g.milestones.length>0&&g.milestones.length<=5&&g.milestones.every(m=>m&&str(m.label,200)&&['cash','cash_gain','skill','rank','trust','estate','health','actions'].includes(m.kind)&&str(m.key,80)&&Number.isFinite(m.target)&&m.target>=0&&m.target<=1e8)&&[g.createdDay,g.deadlineDay,g.startCash].every(Number.isFinite)&&g.createdDay>=0&&g.deadlineDay>=g.createdDay&&g.deadlineDay-g.createdDay<=180&&['ready','paused','complete'].includes(g.status)&&str(g.pauseReason)&&str(g.lastReason)&&Array.isArray(g.actions)&&g.actions.length<=200&&g.actions.every(x=>str(x,80))&&(g.proposal===null||!!g.proposal&&str(g.proposal.action,40)&&str(g.proposal.arg,80)&&str(g.proposal.reason,1000));
+}

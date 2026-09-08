@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
-const source=fs.readFileSync(new URL('./lib/game.ts',import.meta.url),'utf8');
-const js=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
-const {createGame,perform,validSave,inherit,age,steps,events,difficulties,parseCommand}=await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'));
+import {importTS} from './test-loader.mjs';
+const {createGame,perform,validSave,inherit,age,steps,events,difficulties,parseCommand}=await importTS('lib/game.ts');
 const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]||'艾伦 · 男性']));Object.assign(d,{name:'艾伦',gender:'男性',age:'成年 · 适龄',education:'工坊学艺',wealth:'宽裕 · 30银',potential:'罕见亲和'});
 let checked=0;function check(v,msg){assert.ok(v,msg);checked++;}
 let s=createGame(d);check(validSave(s),'new game passes validation');const first=structuredClone(s);let result=perform(s,'work');check(!result.error,'work succeeds');check(result.state.day===7,'work advances seven days');check(s.day===0&&s.cash===first.cash,'reducer leaves input untouched');check(result.state.cash>s.cash,'work income survives living expenses');s=result.state;
@@ -22,9 +21,7 @@ let many=createGame(d);many.cash=100000;for(let i=0;i<80;i++){if(many.event)many
 check(parseCommand('【属性】')[0]==='panel','panel command');check(parseCommand('训练 剑术')[1]==='剑术','training command');
 console.log(`Passed ${checked} gameplay and persistence checks.`);
 
-const saveSource=fs.readFileSync(new URL('./lib/save-state.ts',import.meta.url),'utf8');
-const saveJS=ts.transpileModule(saveSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
-const {pushHistory,popHistory,upsertSlot}=await import('data:text/javascript;base64,'+Buffer.from(saveJS).toString('base64'));
+const {pushHistory,popHistory,upsertSlot}=await importTS('lib/save-state.ts');
 let history=[];let current=createGame(d);const start=JSON.stringify(current);history=pushHistory(history,current);current=perform(current,'work').state;const restored=popHistory(history);check(JSON.stringify(restored.game)===start,'undo restores complete prior state');check(restored.history.length===0,'undo consumes one history entry');check(popHistory([])===null,'empty undo intentional');
 let slots=upsertSlot([],'a',current,history,'today');slots[0].label='原路线';const slotB=structuredClone(current);slotB.cash+=300;slots=upsertSlot(slots,'b',slotB,[],'today');const snapshot=JSON.stringify(slots[0]);slots=upsertSlot(slots,'b',perform(slotB,'rest').state,[],'tomorrow');check(JSON.stringify(slots.find(s=>s.id==='a'))===snapshot,'editing second slot preserves first');check(slots.length===2,'upsert does not duplicate slots');slots=upsertSlot(slots,'a',current,history,'later');check(slots.find(s=>s.id==='a').label==='原路线','autosave preserves custom name');
 for(let i=0;i<25;i++)history=pushHistory(history,current);check(history.length===20,'history bounded to 20');const loaded=JSON.parse(JSON.stringify(slots));check(loaded.every(s=>validSave(s.game)&&s.history.every(validSave)),'slot JSON validates');console.log(`Passed ${checked} total checks, including independent slots and full-state undo.`);
