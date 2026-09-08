@@ -5,7 +5,7 @@ import {date,money,type Game} from '../lib/game';
 import {makeGoal,validateDecision,assessAction,executeGoalAction,goalReached,milestoneValue,actionLabel,type Decision} from '../lib/goal-engine';
 import type {LifeGoal} from '../lib/goal-types';
 type Props={game:Game,slotId:string,initialText:string,onCommit:(next:Game,expected:Game,slot:string,history:boolean,revision:number)=>boolean,getRevision:()=>number,onManual:()=>void};
-type Connection={configured:boolean,model:string,provider:string};
+type Connection={configured:boolean,model:string,provider:string,configurationError?:string};
 export default function GoalPanel({game,slotId,initialText,onCommit,getRevision,onManual}:Props){
  const [input,setInput]=useState(initialText||game.aiGoal?.request||''),[days,setDays]=useState('auto'),[running,setRunning]=useState(false),[error,setError]=useState(''),[phase,setPhase]=useState(''),[connection,setConnection]=useState<Connection|null>(null);
  const abortRef=useRef<AbortController|null>(null),serial=useRef(0),expected=useRef(game),slot=useRef(slotId),isRunning=useRef(false),live=useRef(true);const expectedRevision=useRef(getRevision());const current=useRef(game);current.current=game;
@@ -17,7 +17,7 @@ export default function GoalPanel({game,slotId,initialText,onCommit,getRevision,
  function halt(s:Game,reason:string,complete=false){if(!s.aiGoal)return;const n={...s,aiGoal:{...s.aiGoal,status:complete?'complete' as const:'paused' as const,pauseReason:reason,proposal:complete?null:s.aiGoal.proposal}};commit(n,s,false)}
  async function run(newGoal:boolean){
   const request=newGoal?input.trim():current.current.aiGoal?.request;if(!request){setError('写下一句目标描述即可，不需要列行动清单。');return}if(request.length>1500){setError('目标描述请控制在1500字以内。');return}
-  if(connection&&!connection.configured){setError('OpenAI 尚未连接，请先完成下方的连接设置。目标没有执行，存档未改变。');return}
+  if(connection&&!connection.configured){setError((connection.configurationError||'AI 尚未连接，请先完成连接设置。')+' 目标没有执行，存档未改变。');return}
   if(current.current.event){setError('请先处理当前事件，再来安排或继续目标。');return}
   cancel();const ticket=++serial.current;const controller=new AbortController();abortRef.current=controller;isRunning.current=true;setRunning(true);setError('');slot.current=slotId;let local=current.current;expected.current=local;expectedRevision.current=getRevision();let first=newGoal;
   const stale=()=>!live.current||ticket!==serial.current||controller.signal.aborted||getRevision()!==expectedRevision.current;
@@ -48,9 +48,10 @@ export default function GoalPanel({game,slotId,initialText,onCommit,getRevision,
  <label className="goal-label" htmlFor="life-goal">你接下来想做什么？</label><textarea id="life-goal" maxLength={1500} value={input} disabled={running} onChange={e=>setInput(e.target.value)} placeholder="比如：下个月先攒点钱，顺便练好剑术，别冒险。"/>
  <div className="goal-examples">{['下个月先攒钱，顺便练剑，别冒险','我想开一间自己的工坊，先做准备','最近太累了，休养身体，多陪陪家人'].map(t=><button disabled={running} key={t} onClick={()=>setInput(t)}>{t}</button>)}</div>
  <div className="goal-controls"><label>安排多久<select value={days} disabled={running} onChange={e=>setDays(e.target.value)}><option value="auto">从描述中理解</option><option value="7">7日</option><option value="30">1个月</option><option value="90">3个月</option><option value="180">半年</option></select></label>{running?<button className="primary" onClick={pause}><Pause size={17}/>暂停推进</button>:<button className="primary" disabled={!input.trim()||game.dead||game.retired} onClick={()=>void run(true)}><Sparkles size={17}/>{goal?'按新目标推进':'理解并开始'}</button>}</div>
- <p className="goal-note">未写期限时按30日安排。每次最多连续推进12步，可随时暂停；重要选择交给你。角色现状和目标会发送给 OpenAI。</p>
+ <p className="goal-note">未写期限时按30日安排。每次最多连续推进12步，可随时暂停；重要选择交给你。角色现状和目标会发送给{connection?.provider||'已配置的 AI 服务'}。</p>
  {running&&<div className="goal-working" role="status"><span className="goal-spinner"/>{phase}</div>}{error&&<p role="alert" className="goal-error">{error}</p>}
- {connection&&!connection.configured&&<div className="goal-connection"><small>OPENAI · 尚未连接</small><h3>目标玩法已就绪，还需连接 AI</h3><p>网站还没有 OpenAI API 密钥。请回到本对话，启用 OpenAI Developers 插件完成密钥配置；密钥保存在网站服务端，不写入人生存档。</p><p>连接前仍可手动游玩，点击“理解并开始”不会假装已调用 AI。</p></div>}
+ {connection&&!connection.configured&&<div className="goal-connection"><small>{connection.provider} · 尚未连接</small><h3>目标玩法已就绪，还需连接 AI</h3><p>{connection.configurationError} 请回到本对话完成配置，密钥保存在网站服务端，不写入人生存档。</p><p>现在仍可手动游玩。</p></div>}
+ {connection?.provider==='阿里云百炼'&&<p className="goal-note">如只使用免费额度，请在百炼控制台为 {connection.model} 开启“免费额度用完即停”。</p>}
  {goal&&<div className="goal-plan"><div className="goal-plan-title"><small>阶段目标 · {goal.status==='complete'?'已完成':running?'推进中':'等待继续'}</small><span><Clock size={13}/>{date(goal.createdDay)} → {date(goal.deadlineDay)}</span></div><h3>{goal.interpretation}</h3><div className="goal-priorities">{goal.priorities.map((p,i)=><span key={i}>{i+1}. {p}</span>)}</div>{goal.assumptions.length>0&&<details><summary>我作出的假设</summary>{goal.assumptions.map((a,i)=><p key={i}>{a}</p>)}</details>}
  <div className="goal-milestones">{goal.milestones.map((m,i)=>{const value=milestoneValue(game,goal,m),done=value>=m.target;const fmt=(n:number)=>m.kind==='cash'||m.kind==='cash_gain'?(n<0?'−':'')+money(Math.abs(n)):Math.round(n);return <div key={i} className={done?'done':''}><span>{done?<Check size={16}/>:<Target size={16}/>}</span><div><b>{m.label}</b><small>{fmt(value)} / {fmt(m.target)}</small></div></div>})}</div>
  <div className="goal-progress"><span>已推进 {game.day-goal.createdDay} / {goal.deadlineDay-goal.createdDay} 日</span><span>{goal.actions.length} 次行动</span></div><div className="track"><i style={{width:Math.min(100,(game.day-goal.createdDay)/(goal.deadlineDay-goal.createdDay)*100)+'%'}}/></div>
@@ -58,7 +59,7 @@ export default function GoalPanel({game,slotId,initialText,onCommit,getRevision,
  {!running&&proposal&&check?.kind==='confirm'&&<div className="goal-proposal"><small>交给你决定</small><h3>{actionLabel(proposal)}</h3><p>{proposal.reason}</p><button onClick={approve}>执行这一步<ArrowRight size={16}/></button></div>}
  {!running&&goal.status!=='complete'&&<div className="save-actions"><button disabled={!!game.event||game.day>=goal.deadlineDay||game.dead||game.retired} onClick={()=>void run(false)}><Play size={16}/>继续围绕此目标</button>{game.event&&<button onClick={onManual}>先处理眼前事件</button>}</div>}
  </div>}
- {connection?.configured&&<p className="goal-connected">● 已连接 {connection.provider} · {connection.model} · 每一步都会重新评估</p>}
+ {connection?.configured&&<p className="goal-connected">● 已配置 {connection.provider} · {connection.model} · 开始目标时验证连接</p>}
  </div>
 }
 

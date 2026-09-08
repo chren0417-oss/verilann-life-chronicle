@@ -2,7 +2,10 @@ import {env} from 'cloudflare:workers';
 import {validSave} from '../../../lib/game';
 import {aiConfiguration,planWithAI,AIError,type AIEnvironment} from '../../../lib/ai-provider';
 export const dynamic='force-dynamic';
-const configuration=()=>({OPENAI_API_KEY:(env as AIEnvironment).OPENAI_API_KEY||process.env.OPENAI_API_KEY,OPENAI_MODEL:(env as AIEnvironment).OPENAI_MODEL||process.env.OPENAI_MODEL});
+const configuration=()=>{
+ const runtime=env as AIEnvironment;
+ return {AI_PROVIDER:runtime.AI_PROVIDER||process.env.AI_PROVIDER,OPENAI_API_KEY:runtime.OPENAI_API_KEY||process.env.OPENAI_API_KEY,OPENAI_MODEL:runtime.OPENAI_MODEL||process.env.OPENAI_MODEL,DASHSCOPE_API_KEY:runtime.DASHSCOPE_API_KEY||process.env.DASHSCOPE_API_KEY,BAILIAN_BASE_URL:runtime.BAILIAN_BASE_URL||process.env.BAILIAN_BASE_URL,BAILIAN_MODEL:runtime.BAILIAN_MODEL||process.env.BAILIAN_MODEL};
+};
 function json(data:unknown,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}})}
 const requests=new Map<string,{count:number,reset:number,active:boolean}>();
 export function GET(request:Request){if(!request.headers.get('oai-authenticated-user-id'))return json({error:'请先登录这个私人网站。'},401);return json(aiConfiguration(configuration()))}

@@ -1,18 +1,94 @@
 import {decisionSchema,plannerInstructions,modelContext,validateDecision,type Decision} from './goal-engine';
 import type {Game} from './game';
-export type AIEnvironment={OPENAI_API_KEY?:string,OPENAI_MODEL?:string};
+
+export type AIEnvironment={
+ AI_PROVIDER?:string;
+ OPENAI_API_KEY?:string;
+ OPENAI_MODEL?:string;
+ DASHSCOPE_API_KEY?:string;
+ BAILIAN_BASE_URL?:string;
+ BAILIAN_MODEL?:string;
+};
 export class AIError extends Error{constructor(message:string,public status=502){super(message)}}
-export function aiConfiguration(env:AIEnvironment){return {configured:Boolean(env.OPENAI_API_KEY?.trim()),model:env.OPENAI_MODEL?.trim()||'gpt-5-mini',provider:'OpenAI'}}
-export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenDays:number|null,fetcher:typeof fetch=fetch,signal?:AbortSignal):Promise<Decision>{
- const cfg=aiConfiguration(env);if(!cfg.configured)throw new AIError('OpenAI 尚未连接。需要先为这个网站配置 API 密钥，当前人生没有发生变化。',503);
- const controller=new AbortController();const abort=()=>controller.abort();signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)controller.abort();const timeout=setTimeout(abort,45000);
+
+function bailianEndpoint(value:string|undefined){
  try{
-  const response=await fetcher('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:'Bearer '+env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({model:cfg.model,store:false,instructions:plannerInstructions,input:JSON.stringify({request,chosenDays,context:modelContext(s)}),reasoning:{effort:'low'},max_output_tokens:3500,text:{format:{type:'json_schema',name:'life_goal_decision',strict:true,schema:decisionSchema}}}),signal:controller.signal});
-  if(!response.ok){if(response.status===401||response.status===403)throw new AIError('OpenAI 密钥无效，或账号没有所选模型的权限。',502);if(response.status===429)throw new AIError('OpenAI 额度或请求频率受限，请检查额度后再继续。',429);throw new AIError('OpenAI 暂时无法响应，请稍后重试。')}
-  const payload=await response.json() as {status?:string,output?:{type?:string,content?:{type?:string,text?:string}[]}[]};if(payload.status!=='completed')throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
-  const result=payload.output?.flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text||'').join('');if(!result)throw new AIError('AI 未返回可执行的计划，请换一种目标描述。');
+  const url=new URL(value?.trim()||'https://dashscope.aliyuncs.com/compatible-mode/v1');
+  const official=url.hostname==='dashscope.aliyuncs.com'||/^ws-[a-z0-9-]+\.cn-beijing\.maas\.aliyuncs\.com$/.test(url.hostname);
+  if(url.protocol!=='https:'||!official||url.port||url.username||url.password||url.search||url.hash||!/^\/compatible-mode\/v1\/?$/.test(url.pathname))return null;
+  return url.origin+'/compatible-mode/v1/chat/completions';
+ }catch{return null}
+}
+
+export function aiConfiguration(env:AIEnvironment){
+ const selected=env.AI_PROVIDER?.trim()||'openai';
+ const bailian=selected==='bailian';
+ const provider=bailian?'阿里云百炼':'OpenAI';
+ const model=(bailian?env.BAILIAN_MODEL:env.OPENAI_MODEL)?.trim()||(bailian?'qwen-plus':'gpt-5-mini');
+ const key=(bailian?env.DASHSCOPE_API_KEY:env.OPENAI_API_KEY)?.trim();
+ let configurationError='';
+ if(!['openai','bailian'].includes(selected))configurationError='AI 服务配置无效，请检查服务端设置。';
+ else if(bailian&&!bailianEndpoint(env.BAILIAN_BASE_URL))configurationError='百炼接口地址无效，请使用北京地域的官方兼容接口地址。';
+ else if(bailian&&key?.startsWith('sk-proj-'))configurationError='当前填写的是 OpenAI 密钥，请改用这个业务空间的百炼 API Key。';
+ else if(!key)configurationError=bailian?'还缺少百炼 API Key。接口地址已配置，请填写同一业务空间的密钥。':'OpenAI 尚未连接，需要先配置 API 密钥。';
+ return {configured:!configurationError,model,provider,configurationError};
+}
+
+async function upstreamError(response:Response,provider:string){
+ const payload=await response.json().catch(()=>null) as {error?:{code?:string},code?:string}|null;
+ const code=payload?.error?.code||payload?.code||'';
+ if(code==='AllocationQuota.FreeTierOnly')return new AIError('百炼免费额度已用尽或到期，服务已按“免费额度用完即停”停止调用。请更换仍有免费额度的模型。',403);
+ if(code==='Arrearage')return new AIError('百炼账户处于欠费状态，暂时无法调用，请检查账户状态。',402);
+ if(provider==='OpenAI'&&['credit_balance_exhausted','insufficient_quota'].includes(code))return new AIError('OpenAI 可用额度不足，请检查账户额度；当前人生没有推进。',429);
+ if(response.status===401)return new AIError(`${provider}密钥无效，请检查密钥是否正确，以及是否属于当前地域和业务空间。`);
+ if(response.status===403)return new AIError(`${provider}拒绝了调用，请检查业务空间的模型权限和账户状态。`);
+ if(response.status===429)return new AIError(`${provider}请求过快或模型限额受限，请稍后重试。`,429);
+ if(response.status===400||response.status===404)return new AIError(`${provider}未接受当前模型或请求格式，请检查模型名称和接口配置。`);
+ return new AIError(`${provider}暂时无法响应，请稍后重试。`);
+}
+
+export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenDays:number|null,fetcher:typeof fetch=fetch,signal?:AbortSignal):Promise<Decision>{
+ const cfg=aiConfiguration(env);
+ if(!cfg.configured)throw new AIError(cfg.configurationError+' 当前人生没有发生变化。',503);
+ const bailian=env.AI_PROVIDER?.trim()==='bailian';
+ const key=(bailian?env.DASHSCOPE_API_KEY:env.OPENAI_API_KEY)!.trim();
+ const endpoint=bailian?bailianEndpoint(env.BAILIAN_BASE_URL)!:'https://api.openai.com/v1/responses';
+ const input=JSON.stringify({request,chosenDays,context:modelContext(s)});
+ // JSON mode does not enforce the schema. Validate every field locally before
+ // allowing the existing rules engine to assess or execute any proposed action.
+ const body=bailian?{
+  model:cfg.model,stream:false,enable_thinking:false,max_tokens:3500,
+  messages:[{role:'system',content:plannerInstructions+'\n必须返回符合以下 JSON Schema 的单个JSON对象，不要添加Markdown代码块：\n'+JSON.stringify(decisionSchema)},{role:'user',content:input}],
+  response_format:{type:'json_object'},
+ }:{
+  model:cfg.model,store:false,instructions:plannerInstructions,input,
+  reasoning:{effort:'low'},max_output_tokens:3500,
+  text:{format:{type:'json_schema',name:'life_goal_decision',strict:true,schema:decisionSchema}},
+ };
+ const controller=new AbortController();const abort=()=>controller.abort();
+ signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)controller.abort();
+ const timeout=setTimeout(abort,45000);
+ try{
+  const response=await fetcher(endpoint,{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
+  if(!response.ok)throw await upstreamError(response,cfg.provider);
+  let result:string;
+  if(bailian){
+   const payload=await response.json() as {choices?:{finish_reason?:string,message?:{content?:string,refusal?:string}}[]};
+   const choice=payload.choices?.[0];
+   if(choice?.finish_reason!=='stop'||choice.message?.refusal)throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
+   result=choice.message?.content||'';
+  }else{
+   const payload=await response.json() as {status?:string,output?:{type?:string,content?:{type?:string,text?:string}[]}[]};
+   if(payload.status!=='completed')throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
+   result=payload.output?.flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text||'').join('')||'';
+  }
+  if(typeof result!=='string'||!result)throw new AIError('AI 未返回可执行的计划，请换一种目标描述。');
   let decision:unknown;try{decision=JSON.parse(result)}catch{throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
-  if(!validateDecision(decision))throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。');return decision;
- }catch(error){if(error instanceof AIError)throw error;if(controller.signal.aborted)throw new AIError('AI 请求已取消或超时，你可以继续手动游玩。',504);throw new AIError('连接 OpenAI 失败，请稍后重试。')}
- finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
+  if(!validateDecision(decision))throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。');
+  return decision;
+ }catch(error){
+  if(error instanceof AIError)throw error;
+  if(controller.signal.aborted)throw new AIError('AI 请求已取消或超时，你可以继续手动游玩。',504);
+  throw new AIError(`连接${cfg.provider}失败，请稍后重试。`);
+ }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
 }
