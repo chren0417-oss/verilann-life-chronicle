@@ -69,7 +69,10 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
  signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)controller.abort();
  const timeout=setTimeout(abort,45000);
  try{
-  const response=await fetcher(endpoint,{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
+  // Workerd rejects redirect:'error'. Return redirects without following them,
+  // then reject them explicitly so Authorization never reaches another host.
+  const response=await fetcher(endpoint,{method:'POST',redirect:'manual',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(body),signal:controller.signal});
+  if(response.status>=300&&response.status<400)throw new AIError(`${cfg.provider}接口返回了重定向，已停止请求，请检查接口地址。`);
   if(!response.ok)throw await upstreamError(response,cfg.provider);
   let result:string;
   if(bailian){

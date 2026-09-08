@@ -21,7 +21,7 @@ const parsed=await planWithAI(env,state,'这个月先攒钱，别冒险',null,fe
 check(validateDecision(parsed),'valid Bailian completion accepted');
 check(captured.url===base+'/chat/completions','workspace endpoint used');
 check(captured.init.headers.Authorization==='Bearer bailian-test-secret','provider keys isolated');
-check(captured.init.redirect==='error','redirects cannot forward credentials');
+check(captured.init.redirect==='manual','redirects cannot forward credentials');
 const body=JSON.parse(captured.init.body);
 check(body.model==='qwen-plus'&&body.enable_thinking===false&&body.stream===false,'Qwen non-thinking mode');
 check(body.response_format.type==='json_object'&&body.messages[0].content.includes(JSON.stringify(decisionSchema)),'JSON schema supplied in prompt');
@@ -45,6 +45,9 @@ for(const [status,code,pattern] of [[403,'AllocationQuota.FreeTierOnly',/免费�
  await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>Response.json({error:{code,message:'must not echo upstream secrets'}},{status})),pattern);check(true,'upstream errors classified');
 }
 const controller=new AbortController();controller.abort();
+let redirectCalls=0;
+await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>{redirectCalls++;return new Response(null,{status:302,headers:{Location:'https://untrusted.example/'}})}),/重定向/);
+check(redirectCalls===1,'redirect response is rejected without a second request');
 await assert.rejects(()=>planWithAI(env,state,'x',null,async(_url,init)=>{check(init.signal.aborted,'abort reaches provider');throw new Error('aborted')},controller.signal),/取消或超时/);
 check(JSON.stringify(state)===snapshot,'all requests preserve game state');
 console.log(`Passed ${count} Bailian contract, credential isolation and failure checks. Mocked calls only.`);

@@ -25,8 +25,10 @@
 
 API密钥不进入前端、存档或模型输入，不跟随HTTP重定向。路由验证Sites派发的已登录用户身份和同源请求，并做单实例限速与并发限制；网站继续保持仅站点所有者可访问。公开连接状态只表示配置存在，实际请求验证权限和额度。
 
-验证命令：`node test-game.mjs`、`node test-goal.mjs`、`node test-bailian.mjs`、`pnpm exec tsc --noEmit`、`pnpm build`。测试覆盖147项游戏检查、51项目标检查、42项百炼协议、收支计算与凭据隔离检查。百炼已用独立内存测试角色成功调用；真实模型内容仍需按游戏规则校验，有限示例不能保证所有目标的规划质量。测试不读写玩家的浏览器存档。未执行浏览器交互测试。
+验证命令：`node test-game.mjs`、`node test-goal.mjs`、`node test-bailian.mjs`、`node test-worker-ai.mjs`、`pnpm exec tsc --noEmit`、`pnpm build`。测试覆盖147项游戏检查、51项目标检查、43项百炼协议、收支计算与凭据隔离检查。百炼已用独立内存测试角色成功调用；真实模型内容仍需按游戏规则校验，有限示例不能保证所有目标的规划质量。测试不读写玩家的浏览器存档。未执行浏览器交互测试。
 
 官方接口依据：https://developers.openai.com/api/docs/guides/structured-outputs 和 https://developers.openai.com/api/docs/quickstart 。
 
 百炼接口依据：https://help.aliyun.com/zh/model-studio/qwen-structured-output 和 https://help.aliyun.com/en/model-studio/base-url 。
+
+运行环境回归：Workerd不支持 fetch 的 redirect:error，改用manual并显式拒绝3xx；新增11项原生Workerd调用与重定向隔离检查，确保与Node模拟测试不同的运行环境约束也被覆盖。
