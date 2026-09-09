@@ -1,4 +1,4 @@
-import {bailianModelContext,bailianPlannerInstructions,decisionSchema,fallbackDecision,plannerInstructions,modelContext,validateDecision,type Decision} from './goal-engine';
+import {assessAction,bailianModelContext,bailianPlannerInstructions,decisionSchema,fallbackDecision,makeGoal,normaliseBailianDecision,plannerInstructions,modelContext,validateDecision,type Decision} from './goal-engine';
 import type {Game} from './game';
 
 export type AIEnvironment={
@@ -109,15 +109,15 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
   };
   let result=await upstream(body);
   if(typeof result!=='string'||!result){if(bailian)return fallback();throw new AIError('AI 未返回可执行的计划，请换一种目标描述。')}
-  let decision:unknown;try{decision=JSON.parse(result)}catch{if(bailian)return fallback();throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
+  let decision:unknown;try{decision=JSON.parse(result);if(bailian)decision=normaliseBailianDecision(decision,s)??decision}catch{if(bailian)return fallback();throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
   if(bailian&&!validateDecision(decision)){
    // Qwen JSON mode occasionally preserves an otherwise harmless explanatory
    // field. Give it one compact correction pass, then apply the same strict
    // local validation before the game can use the proposal.
-   try{const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});decision=JSON.parse(repaired)}catch(error){if(signal?.aborted)throw error;return fallback()}
+   try{const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});const repairedValue=JSON.parse(repaired);decision=normaliseBailianDecision(repairedValue,s)??repairedValue}catch(error){if(signal?.aborted)throw error;return fallback()}
   }
   if(!validateDecision(decision)){if(bailian)return fallback();throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。')}
-  if(bailian&&decision.status==='continue'&&(s.hp<35||s.injury>20||s.stamina<30)){const safe=fallback();return {...decision,message:safe.message,next:safe.next}}
+  if(bailian&&decision.status==='continue'&&decision.next&&assessAction(s,makeGoal(s,request,decision,chosenDays),decision.next).kind==='blocked')return fallback();
   return decision;
  }catch(error){
   if(bailian&&!signal?.aborted&&error instanceof AIError&&(error.status===504||/暂时无法响应|尚未生成完整计划/.test(error.message)))return fallback();
