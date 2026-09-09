@@ -21,7 +21,7 @@
 服务端支持两种明确选择的供应商，互不回退或共用密钥：
 
 - `AI_PROVIDER=openai`：使用 `OPENAI_API_KEY`、`OPENAI_MODEL`（默认 `gpt-5-mini`），调用固定的 OpenAI Responses API，`store:false`。
-- `AI_PROVIDER=bailian`：使用 `DASHSCOPE_API_KEY`、`BAILIAN_BASE_URL`、`BAILIAN_MODEL`（默认 `qwen-plus`）。只接受百炼北京地域官方 HTTPS 接口及业务空间地址。使用 Chat Completions 非思考 JSON Object 模式，将完整 Schema 交给模型后在本地验证；拒绝截断或额外字段。免费使用时须在百炼控制台为所用模型开启“免费额度用完即停”，接口不会自动启用该控制台开关。
+- `AI_PROVIDER=bailian`：使用 `DASHSCOPE_API_KEY`、`BAILIAN_BASE_URL`、`BAILIAN_MODEL`（默认 `qwen-plus`）。只接受百炼北京地域官方 HTTPS 接口及业务空间地址。使用 Chat Completions 非思考 JSON Object 模式，发送精简的角色状态以适应运行时响应窗口；格式偏差会自动请求一次修正，随后仍由本地规则严格验证。免费使用时须在百炼控制台为所用模型开启“免费额度用完即停”，接口不会自动启用该控制台开关。
 
 API密钥不进入前端、存档或模型输入，不跟随HTTP重定向。路由验证Sites派发的已登录用户身份和同源请求，并做单实例限速与并发限制；网站继续保持仅站点所有者可访问。公开连接状态只表示配置存在，实际请求验证权限和额度。
 

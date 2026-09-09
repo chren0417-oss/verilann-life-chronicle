@@ -24,8 +24,9 @@ check(captured.init.headers.Authorization==='Bearer bailian-test-secret','provid
 check(captured.init.redirect==='manual','redirects cannot forward credentials');
 const body=JSON.parse(captured.init.body);
 check(body.model==='qwen-plus'&&body.enable_thinking===false&&body.stream===false,'Qwen non-thinking mode');
-check(body.response_format.type==='json_object'&&body.messages[0].content.includes(JSON.stringify(decisionSchema)),'JSON schema supplied in prompt');
-check(body.max_tokens===3500&&!body.text&&!body.reasoning,'bounded provider-compatible parameters');
+check(body.response_format.type==='json_object'&&body.messages[0].content.includes('interpretation,horizonDays')&&!body.messages[0].content.includes(JSON.stringify(decisionSchema)),'compact JSON contract supplied in prompt');
+check(body.max_tokens===900&&!body.text&&!body.reasoning,'bounded provider-compatible parameters');
+check(body.messages[1].content.includes('这个月先攒钱，别冒险')&&body.messages[1].content.includes('weeklyWorkNet'),'compact state and original goal supplied');
 check(!JSON.stringify(body).includes('test-secret'),'keys absent from model input');
 check(!JSON.stringify(aiConfiguration(env)).includes('test-secret'),'keys absent from public configuration');
 check(aiConfiguration(env).provider==='阿里云百炼'&&aiConfiguration(env).configured,'public provider truthful');
@@ -40,6 +41,9 @@ for(const payload of [
  {...decision,next:{...decision.next,action:'add_cash'}}, {...decision,next:{...decision.next,cash:999}},
  {...decision,milestones:[{...decision.milestones[0],cheat:true}]}, {...decision,horizonDays:undefined},
 ]){await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>completion(JSON.stringify(payload))));check(!validateDecision(payload),'schema violations rejected');}
+let repairCalls=0;
+const repaired=await planWithAI(env,state,'x',null,async(_url,init)=>{repairCalls++;const outgoing=JSON.parse(init.body);if(repairCalls===1)return completion(JSON.stringify({...decision,notes:'无关说明'}));check(outgoing.messages[0].content.includes('修正'), 'invalid JSON gets one compact repair request');return completion(JSON.stringify(decision))});
+check(repairCalls===2&&validateDecision(repaired),'valid repair is accepted only after local validation');
 for(const [content,reason] of [['','stop'],['not json','stop'],[JSON.stringify(decision),'length'],[JSON.stringify(decision),'content_filter']]){await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>completion(content,reason)));check(true,'incomplete output rejected');}
 for(const [status,code,pattern] of [[403,'AllocationQuota.FreeTierOnly',/免费额度已用尽/],[403,'AccessDenied',/模型权限/],[429,'Throttling.AllocationQuota',/请求过快/],[429,'insufficient_quota',/请求过快/],[400,'Arrearage',/欠费/],[401,'InvalidApiKey',/密钥无效/]]){
  await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>Response.json({error:{code,message:'must not echo upstream secrets'}},{status})),pattern);check(true,'upstream errors classified');
@@ -48,6 +52,6 @@ const controller=new AbortController();controller.abort();
 let redirectCalls=0;
 await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>{redirectCalls++;return new Response(null,{status:302,headers:{Location:'https://untrusted.example/'}})}),/重定向/);
 check(redirectCalls===1,'redirect response is rejected without a second request');
-await assert.rejects(()=>planWithAI(env,state,'x',null,async(_url,init)=>{check(init.signal.aborted,'abort reaches provider');throw new Error('aborted')},controller.signal),/取消或超时/);
+await assert.rejects(()=>planWithAI(env,state,'x',null,async(_url,init)=>{check(init.signal.aborted,'abort reaches provider');throw new Error('aborted')},controller.signal),/取消或超时|百炼响应超时/);
 check(JSON.stringify(state)===snapshot,'all requests preserve game state');
 console.log(`Passed ${count} Bailian contract, credential isolation and failure checks. Mocked calls only.`);
