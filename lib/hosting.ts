@@ -3,7 +3,9 @@ import {events,perform,type Choice,type Game,type Hosting} from './game';
 export type HostingStep={state:Game,action:string,reason:string,error?:string};
 
 export function shouldRest(s:Game,h:Hosting){
- return h.staminaBelow!==null&&s.stamina<h.staminaBelow||h.hpBelow!==null&&s.hp<h.hpBelow;
+ const triggered=h.staminaBelow!==null&&s.stamina<h.staminaBelow||h.hpBelow!==null&&s.hp<h.hpBelow;
+ const recovering=!!h.resting&&((h.staminaRecoverTo!==null&&h.staminaRecoverTo!==undefined&&s.stamina<h.staminaRecoverTo)||(h.hpRecoverTo!==null&&h.hpRecoverTo!==undefined&&s.hp<h.hpRecoverTo));
+ return triggered||recovering;
 }
 
 function affordable(s:Game,c:Choice){return !c.cost||s.cash>=c.cost}
@@ -35,5 +37,6 @@ export function hostedStep(s:Game):HostingStep{
  if(s.dead||s.retired)return {state:{...s,hosting:{...h,active:false,reason:'这段人生已经结束。'}},action:'',reason:'这段人生已经结束。',error:'这段人生已经结束。'};
  if(s.event){const index=chooseHostedEvent(s);if(index===null)return {state:{...s,hosting:{...h,active:false,reason:'当前事件没有符合托管规则的可选方案。'}},action:'',reason:'当前事件没有符合托管规则的可选方案。',error:'当前事件没有符合托管规则的可选方案。'};const result=perform(s,'event',String(index));if(result.error)return {state:{...s,hosting:{...h,active:false,reason:result.error}},action:'event',reason:result.error,error:result.error};return {state:{...result.state,hosting:{...h,active:true,completed:h.completed+1,reason:'已按托管规则处理事件。'}},action:'event',reason:'已自动处理事件。'};}
  const action=shouldRest(s,h)?'rest':h.action;const result=perform(s,action);if(result.error)return {state:{...s,hosting:{...h,active:false,reason:result.error}},action,reason:result.error,error:result.error};
- return {state:{...result.state,hosting:{...h,active:true,completed:h.completed+1,reason:action==='rest'?'触发休息条件，已安排休息。':'已完成一段托管行动。'}},action,reason:action==='rest'?'触发休息条件。':'继续托管行动。'};
+ const stillRecovering=action==='rest'&&((h.staminaRecoverTo!==null&&h.staminaRecoverTo!==undefined&&result.state.stamina<h.staminaRecoverTo)||(h.hpRecoverTo!==null&&h.hpRecoverTo!==undefined&&result.state.hp<h.hpRecoverTo));
+ return {state:{...result.state,hosting:{...h,resting:stillRecovering,active:true,completed:h.completed+1,reason:action==='rest'?(stillRecovering?'正在继续休息，直至达到恢复目标。':'休息完成，恢复目标已达成。'):'已完成一段托管行动。'}},action,reason:action==='rest'?(stillRecovering?'继续休息以达到恢复目标。':'触发休息条件。'):'继续托管行动。'};
 }
