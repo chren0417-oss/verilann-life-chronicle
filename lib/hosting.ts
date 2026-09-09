@@ -4,7 +4,8 @@ export type HostingStep={state:Game,action:string,reason:string,error?:string};
 
 export function shouldRest(s:Game,h:Hosting){
  const staminaTriggered=h.staminaBelow!==null&&s.stamina<h.staminaBelow;
- const hpTriggered=h.hpBelow!==null&&s.hp<h.hpBelow;
+ const emergencyHpLine=h.hpBelow===null?null:Math.min(10,h.hpBelow);
+ const hpTriggered=emergencyHpLine!==null&&s.hp<emergencyHpLine;
  const triggered=staminaTriggered||hpTriggered;
  const recovering=!!h.resting&&((h.staminaRecoverTo!==null&&h.staminaRecoverTo!==undefined&&s.stamina<h.staminaRecoverTo)||(h.hpRecoverTo!==null&&h.hpRecoverTo!==undefined&&s.hp<h.hpRecoverTo));
  return triggered||recovering;
