@@ -23,9 +23,9 @@ check(captured.url===base+'/chat/completions','workspace endpoint used');
 check(captured.init.headers.Authorization==='Bearer bailian-test-secret','provider keys isolated');
 check(captured.init.redirect==='manual','redirects cannot forward credentials');
 const body=JSON.parse(captured.init.body);
-check(body.model==='qwen-plus'&&body.enable_thinking===false&&body.stream===false,'Qwen non-thinking mode');
+check(body.model==='qwen-plus'&&body.enable_thinking===false&&body.stream===true,'Qwen non-thinking streaming mode');
 check(body.response_format.type==='json_object'&&body.messages[0].content.includes('interpretation,horizonDays')&&!body.messages[0].content.includes(JSON.stringify(decisionSchema)),'compact JSON contract supplied in prompt');
-check(body.max_tokens===900&&!body.text&&!body.reasoning,'bounded provider-compatible parameters');
+check(body.max_tokens===700&&!body.text&&!body.reasoning,'bounded provider-compatible parameters');
 check(body.messages[1].content.includes('这个月先攒钱，别冒险')&&body.messages[1].content.includes('weeklyWorkNet'),'compact state and original goal supplied');
 check(!JSON.stringify(body).includes('test-secret'),'keys absent from model input');
 check(!JSON.stringify(aiConfiguration(env)).includes('test-secret'),'keys absent from public configuration');
@@ -44,6 +44,9 @@ for(const payload of [
 let repairCalls=0;
 const repaired=await planWithAI(env,state,'x',null,async(_url,init)=>{repairCalls++;const outgoing=JSON.parse(init.body);if(repairCalls===1)return completion(JSON.stringify({...decision,notes:'无关说明'}));check(outgoing.messages[0].content.includes('修正'), 'invalid JSON gets one compact repair request');return completion(JSON.stringify(decision))});
 check(repairCalls===2&&validateDecision(repaired),'valid repair is accepted only after local validation');
+const streamCompletion=(content)=>new Response(new ReadableStream({start(controller){const encoder=new TextEncoder();const mid=Math.ceil(content.length/2);for(const payload of [{choices:[{delta:{content:content.slice(0,mid)},finish_reason:null}]},{choices:[{delta:{content:content.slice(mid)},finish_reason:'stop'}]}])controller.enqueue(encoder.encode('data: '+JSON.stringify(payload)+'\n\n'));controller.enqueue(encoder.encode('data: [DONE]\n\n'));controller.close()}}),{headers:{'Content-Type':'text/event-stream'}});
+const streamed=await planWithAI(env,state,'x',null,async()=>streamCompletion(JSON.stringify(decision)));
+check(validateDecision(streamed),'streamed Qwen chunks are assembled and validated');
 for(const [content,reason] of [['','stop'],['not json','stop'],[JSON.stringify(decision),'length'],[JSON.stringify(decision),'content_filter']]){await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>completion(content,reason)));check(true,'incomplete output rejected');}
 for(const [status,code,pattern] of [[403,'AllocationQuota.FreeTierOnly',/免费额度已用尽/],[403,'AccessDenied',/模型权限/],[429,'Throttling.AllocationQuota',/请求过快/],[429,'insufficient_quota',/请求过快/],[400,'Arrearage',/欠费/],[401,'InvalidApiKey',/密钥无效/]]){
  await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>Response.json({error:{code,message:'must not echo upstream secrets'}},{status})),pattern);check(true,'upstream errors classified');

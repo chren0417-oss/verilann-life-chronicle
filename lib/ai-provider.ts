@@ -11,7 +11,7 @@ export type AIEnvironment={
 };
 export class AIError extends Error{constructor(message:string,public status=502){super(message)}}
 
-const bailianTokenLimit=900;
+const bailianTokenLimit=700;
 const bailianTimeoutMs=8500;
 const bailianRepairInstructions=`把用户提供的 JSON 修正为维尔兰目标计划的有效 JSON。只输出修正后的一个 JSON 对象，不要 Markdown，不要说明，不要额外字段。它只能有 interpretation,horizonDays,priorities,assumptions,milestones,status,message,next 八个字段。horizonDays 是 1 至 180 的整数；milestones 是 1 至 5 项，每项仅有 label,kind,key,target，kind 只能是 cash,cash_gain,skill,rank,trust,estate,health,actions。status 只能是 continue,ask,blocked；continue 的 next 必须是仅含 action,arg,reason 的对象，其他状态 next 为 null。action 只能使用 work,rest,train,social,promote,heal,use,buy,quest,deliver,repair,maintain,cast,explore,job,travel,estate,expand,borrow,repay,marry,adopt,retire,sell,abandon,event。展示文字使用简体中文。不要编造计划内容，只修复格式和无关字段。`;
 
@@ -51,6 +51,27 @@ async function upstreamError(response:Response,provider:string){
  return new AIError(`${provider}暂时无法响应，请稍后重试。`);
 }
 
+async function bailianContent(response:Response){
+ const type=response.headers.get('content-type')||'';
+ if(!type.includes('text/event-stream')){
+  const body=await response.json() as {choices?:{finish_reason?:string,message?:{content?:string,refusal?:string}}[]};
+  const choice=body.choices?.[0];
+  if(choice?.finish_reason!=='stop'||choice.message?.refusal)throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
+  return choice.message?.content||'';
+ }
+ if(!response.body)throw new AIError('AI 未返回可执行的计划，请换一种目标描述。');
+ const reader=response.body.getReader(),decoder=new TextDecoder();let pending='',content='',finish='';
+ const consume=(line:string)=>{
+  if(!line.startsWith('data:'))return;
+  const data=line.slice(5).trim();if(!data||data==='[DONE]')return;
+  try{const chunk=JSON.parse(data) as {choices?:{finish_reason?:string|null,delta?:{content?:string}}[]};const choice=chunk.choices?.[0];if(typeof choice?.delta?.content==='string')content+=choice.delta.content;if(choice?.finish_reason)finish=choice.finish_reason}catch{throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
+ };
+ while(true){const {done,value}=await reader.read();pending+=decoder.decode(value,{stream:!done});const lines=pending.split(/\r?\n/);pending=lines.pop()||'';for(const line of lines)consume(line);if(done)break}
+ if(pending)consume(pending);
+ if(finish!=='stop')throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
+ return content;
+}
+
 export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenDays:number|null,fetcher:typeof fetch=fetch,signal?:AbortSignal):Promise<Decision>{
  const cfg=aiConfiguration(env);
  if(!cfg.configured)throw new AIError(cfg.configurationError+' 当前人生没有发生变化。',503);
@@ -61,7 +82,7 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
  // JSON mode does not enforce the schema. Validate every field locally before
  // allowing the existing rules engine to assess or execute any proposed action.
  const body=bailian?{
-  model:cfg.model,stream:false,enable_thinking:false,max_tokens:bailianTokenLimit,
+  model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,
   messages:[{role:'system',content:bailianPlannerInstructions},{role:'user',content:input}],
   response_format:{type:'json_object'},
  }:{
@@ -80,12 +101,7 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
    const response=await fetcher(endpoint,{method:'POST',redirect:'manual',headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
    if(response.status>=300&&response.status<400)throw new AIError(`${cfg.provider}接口返回了重定向，已停止请求，请检查接口地址。`);
    if(!response.ok)throw await upstreamError(response,cfg.provider);
-   if(bailian){
-    const responseBody=await response.json() as {choices?:{finish_reason?:string,message?:{content?:string,refusal?:string}}[]};
-    const choice=responseBody.choices?.[0];
-    if(choice?.finish_reason!=='stop'||choice.message?.refusal)throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
-    return choice.message?.content||'';
-   }
+   if(bailian)return bailianContent(response);
    const responseBody=await response.json() as {status?:string,output?:{type?:string,content?:{type?:string,text?:string}[]}[]};
    if(responseBody.status!=='completed')throw new AIError('AI 尚未生成完整计划，请重试；当前存档没有变化。');
    return responseBody.output?.flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text||'').join('')||'';
@@ -97,7 +113,7 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
    // Qwen JSON mode occasionally preserves an otherwise harmless explanatory
    // field. Give it one compact correction pass, then apply the same strict
    // local validation before the game can use the proposal.
-   const repaired=await upstream({model:cfg.model,stream:false,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});
+   const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});
    try{decision=JSON.parse(repaired)}catch{throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
   }
   if(!validateDecision(decision))throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。');
