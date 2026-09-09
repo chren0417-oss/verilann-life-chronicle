@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {importTS} from './test-loader.mjs';
+const {createGame,events,perform,steps,validSave}=await importTS('lib/game.ts');
+const {chooseHostedEvent,hostedStep,shouldRest}=await importTS('lib/hosting.ts');
+const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]||'测试者']));Object.assign(d,{name:'测试者',gender:'男性',age:'成年 · 适龄',education:'工坊学艺',wealth:'宽裕 · 30银',potential:'罕见亲和'});
+let checked=0;const check=(value,message)=>{assert.ok(value,message);checked++};
+const plan=(overrides={})=>({action:'work',temperament:'balanced',staminaBelow:null,hpBelow:null,active:true,completed:0,reason:'测试',...overrides});
+let s=createGame(d);s.hosting=plan({hpBelow:40});s.stamina=0;s.hp=80;check(!shouldRest(s,s.hosting),'health-only threshold does not stop for zero stamina');let step=hostedStep(s);check(step.action==='work'&&step.state.hosting.active,'health-only hosting continues work at zero stamina');
+s=createGame(d);s.hosting=plan({staminaBelow:35});s.stamina=20;step=hostedStep(s);check(step.action==='rest'&&step.state.stamina>s.stamina,'stamina threshold schedules rest');
+s=createGame(d);s.hosting=plan();s.event='festival';s.skills.贸易=80;s.skills.剑术=100;check(chooseHostedEvent(s)===1,'ordinary capped-skill choice is skipped for the next highest skill');
+s=createGame(d);s.hosting=plan({temperament:'cautious'});s.event='wolf';s.skills.生存=70;s.skills.锻造=65;check(chooseHostedEvent(s)===1,'cautious hosting avoids injury risk when a safe skilled option exists');
+s=createGame(d);s.hosting=plan({temperament:'balanced'});s.event='river';s.skills.锻造=60;s.skills.生存=60;check(chooseHostedEvent(s)===0,'event rewards break ties between equally skilled safe choices');
+s=createGame(d);s.hosting=plan({temperament:'adventure'});s.event='mastery-剑术';s.skills.剑术=100;s.seed=1;check(chooseHostedEvent(s)===0,'breakthrough event selects the matching breakthrough option');step=hostedStep(s);check(step.action==='event'&&step.state.skills.剑术>100,'breakthrough choice raises a capped skill beyond 100');check(validSave(step.state),'breakthrough and hosting state save safely');
+s=createGame(d);s.hosting=plan();s.event='harvest';s.skills.生存=20;s.skills.礼仪=45;step=hostedStep(s);check(step.action==='event'&&!step.state.event&&step.state.hosting.completed===1,'events resolve inside hosting without pausing it');
+check(events.some(e=>e.id==='mastery-生存'),'special breakthrough events are part of the event pool');
+console.log(`Passed ${checked} hosting, event priority and breakthrough checks.`);

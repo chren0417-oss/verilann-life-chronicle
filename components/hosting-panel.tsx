@@ -1,0 +1,28 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Pause,Play,Shield,Footprints,HeartPulse,BatteryCharging} from 'lucide-react';
+import {hostedStep} from '../lib/hosting';
+import type {Game,Hosting} from '../lib/game';
+
+type Props={game:Game,slotId:string,onCommit:(next:Game,expected:Game,slot:string,history:boolean,revision:number)=>boolean,getRevision:()=>number};
+const temperaments=[['adventure','冒险','接受风险，重视高额收益与突破机会'],['balanced','平和','优先熟练度与稳定收益，适度避险'],['cautious','谨慎','避开受伤与高花费，优先安全选项']] as const;
+
+export default function HostingPanel({game,slotId,onCommit,getRevision}:Props){
+ const existing=game.hosting;const [action,setAction]=useState<Hosting['action']>(existing?.action||'work'),[temperament,setTemperament]=useState<Hosting['temperament']>(existing?.temperament||'balanced'),[staminaOn,setStaminaOn]=useState(existing?.staminaBelow!==null&&existing?.staminaBelow!==undefined),[hpOn,setHpOn]=useState(existing?.hpBelow!==null&&existing?.hpBelow!==undefined),[stamina,setStamina]=useState(existing?.staminaBelow??35),[hp,setHp]=useState(existing?.hpBelow??45),[running,setRunning]=useState(false),[message,setMessage]=useState(existing?.reason||'尚未开始托管。');
+ const serial=useRef(0),live=useRef(true),current=useRef(game),revision=useRef(getRevision());current.current=game;
+ useEffect(()=>{live.current=true;return ()=>{live.current=false;serial.current++}},[]);
+ useEffect(()=>{if(running&&game!==current.current){setRunning(false);setMessage('人物状态已变化，托管已停止。')}},[game,running]);
+ const commit=(next:Game,base:Game,history:boolean)=>{if(!onCommit(next,base,slotId,history,revision.current)){setRunning(false);setMessage('存档已变化，请重新开始托管。');return false}revision.current=getRevision();current.current=next;return true};
+ const config=():Hosting=>({action,temperament,staminaBelow:staminaOn?Math.max(0,Math.min(100,Math.round(stamina))):null,hpBelow:hpOn?Math.max(0,Math.min(100,Math.round(hp))):null,active:true,completed:existing?.completed||0,reason:'托管已启动。'});
+ async function run(base:Game){const ticket=++serial.current;setRunning(true);let local=base;for(let step=0;step<24;step++){if(!live.current||ticket!==serial.current)return;const result=hostedStep(local);if(!commit(result.state,local,!result.error)){setRunning(false);return}local=result.state;setMessage(result.reason);if(result.error||!local.hosting?.active){setRunning(false);return}await new Promise(resolve=>setTimeout(resolve,80));}if(ticket===serial.current){const paused={...local,hosting:{...local.hosting!,active:false,reason:'本次已完成24步托管，请查看经历后继续。'}};commit(paused,local,false);setRunning(false);setMessage(paused.hosting.reason)}}
+ function start(){if(game.dead||game.retired)return;revision.current=getRevision();const planned={...game,hosting:config()};if(commit(planned,game,false))void run(planned)}
+ function pause(){serial.current++;const base=current.current;if(base.hosting){const paused={...base,hosting:{...base.hosting,active:false,reason:'你暂停了托管。'}};commit(paused,base,false)}setRunning(false);setMessage('你暂停了托管。')}
+ return <div className="hosting-panel"><div className="hosting-intro"><Shield size={28}/><div><h3>托管安排</h3><p>按设定重复学习与帮忙或探索；事件会自动作答，期间不会打断。</p></div></div>
+ <div className="hosting-options"><label className={action==='work'?'selected':''}><input type="radio" name="hosting-action" checked={action==='work'} onChange={()=>setAction('work')}/><BatteryCharging size={18}/><span>学习与帮忙<small>7日 · 稳定报酬与职业技能</small></span></label><label className={action==='explore'?'selected':''}><input type="radio" name="hosting-action" checked={action==='explore'} onChange={()=>setAction('explore')}/><Footprints size={18}/><span>探索周边<small>3日 · 采集、收益与受伤风险</small></span></label></div>
+ <h4>事件倾向</h4><div className="hosting-temperaments">{temperaments.map(([value,label,detail])=><label key={value} className={temperament===value?'selected':''}><input type="radio" name="hosting-temperament" checked={temperament===value} onChange={()=>setTemperament(value)}/><b>{label}</b><small>{detail}</small></label>)}</div>
+ <h4>何时自动休息</h4><p className="hosting-help">只会使用你勾选的条件。若只勾选生命，体力归零也会继续托管，直到生命触发设定值。</p><div className="hosting-rest"><label><input type="checkbox" checked={staminaOn} onChange={e=>setStaminaOn(e.target.checked)}/><span>体力低于</span><input aria-label="体力阈值" type="number" min="0" max="100" value={stamina} disabled={!staminaOn} onChange={e=>setStamina(Number(e.target.value))}/></label><label><input type="checkbox" checked={hpOn} onChange={e=>setHpOn(e.target.checked)}/><HeartPulse size={16}/><span>生命低于</span><input aria-label="生命阈值" type="number" min="0" max="100" value={hp} disabled={!hpOn} onChange={e=>setHp(Number(e.target.value))}/></label></div>
+ <div className="hosting-rules"><b>自动事件选择</b><p>优先选择可提升的最高熟练度技能；普通事件会跳过已达100的技能。出现突破事件时，优先选择可突破上限的对应选项。事件的现金、物品、声望、花费与受伤风险会按当前倾向一并评估。</p></div>
+ <div className="hosting-status" role="status"><span className={running?'pulse':''}/><div><b>{running?'托管进行中':game.hosting?.active?'托管已准备':'托管待命'}</b><small>{message}</small>{game.hosting&&<small>本次已处理 {game.hosting.completed} 步</small>}</div></div>
+ <div className="save-actions">{running?<button className="primary" onClick={pause}><Pause size={16}/>暂停托管</button>:<button className="primary" onClick={start} disabled={game.dead||game.retired}><Play size={16}/>开始托管</button>}{!running&&game.hosting?.active&&<button onClick={()=>void run(game)}>继续托管</button>}</div>
+ </div>
+}

@@ -7,10 +7,11 @@ const configuration=()=>{
  return {AI_PROVIDER:runtime.AI_PROVIDER||process.env.AI_PROVIDER,OPENAI_API_KEY:runtime.OPENAI_API_KEY||process.env.OPENAI_API_KEY,OPENAI_MODEL:runtime.OPENAI_MODEL||process.env.OPENAI_MODEL,DASHSCOPE_API_KEY:runtime.DASHSCOPE_API_KEY||process.env.DASHSCOPE_API_KEY,BAILIAN_BASE_URL:runtime.BAILIAN_BASE_URL||process.env.BAILIAN_BASE_URL,BAILIAN_MODEL:runtime.BAILIAN_MODEL||process.env.BAILIAN_MODEL};
 };
 function json(data:unknown,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}})}
+function localActor(request:Request){return ['localhost','127.0.0.1','[::1]'].includes(new URL(request.url).hostname)?'local-player':request.headers.get('oai-authenticated-user-id')}
 const requests=new Map<string,{count:number,reset:number,active:boolean}>();
-export function GET(request:Request){if(!request.headers.get('oai-authenticated-user-id'))return json({error:'请先登录这个私人网站。'},401);return json(aiConfiguration(configuration()))}
+export function GET(request:Request){if(!localActor(request))return json({error:'请先登录这个私人网站。'},401);return json(aiConfiguration(configuration()))}
 export async function POST(request:Request){
- const actor=request.headers.get('oai-authenticated-user-id');if(!actor)return json({error:'请先登录这个私人网站。'},401);
+ const actor=localActor(request);if(!actor)return json({error:'请先登录这个私人网站。'},401);
  const origin=request.headers.get('origin');if(!origin||origin!==new URL(request.url).origin)return json({error:'请求来源无效。'},403);
  if(!request.headers.get('content-type')?.includes('application/json'))return json({error:'请求必须使用JSON。'},415);
  if(Number(request.headers.get('content-length')||0)>200000)return json({error:'请求内容过大。'},413);
