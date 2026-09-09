@@ -78,7 +78,14 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
  const bailian=env.AI_PROVIDER?.trim()==='bailian';
  const key=(bailian?env.DASHSCOPE_API_KEY:env.OPENAI_API_KEY)!.trim();
  const endpoint=bailian?bailianEndpoint(env.BAILIAN_BASE_URL)!:'https://api.openai.com/v1/responses';
- const fallback=()=>fallbackDecision(s,request,chosenDays);
+ const preserveGoal=(d:Decision):Decision=>s.aiGoal?{...d,interpretation:s.aiGoal.interpretation,priorities:s.aiGoal.priorities,assumptions:s.aiGoal.assumptions,milestones:s.aiGoal.milestones,horizonDays:Math.max(1,Math.min(180,s.aiGoal.deadlineDay-s.aiGoal.createdDay))}:d;
+ const assess=(d:Decision)=>d.next?assessAction(s,s.aiGoal??makeGoal(s,request,d,chosenDays),d.next):null;
+ const fallback=(original?:Decision):Decision=>{
+  const safe=fallbackDecision(s,request,chosenDays);
+  const candidate=preserveGoal(original?{...original,next:safe.next,status:safe.status,message:safe.message}:safe);
+  const checked=assess(candidate);
+  return checked?.kind==='blocked'?{...candidate,status:'blocked',next:null,message:checked.reason}:candidate;
+ };
  const input=JSON.stringify(bailian?{goal:request,chosenDays,state:bailianModelContext(s)}:{request,chosenDays,context:modelContext(s)});
  // JSON mode does not enforce the schema. Validate every field locally before
  // allowing the existing rules engine to assess or execute any proposed action.
@@ -117,7 +124,7 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
    try{const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});const repairedValue=JSON.parse(repaired);decision=normaliseBailianDecision(repairedValue,s)??repairedValue}catch(error){if(signal?.aborted)throw error;return fallback()}
   }
   if(!validateDecision(decision)){if(bailian)return fallback();throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。')}
-  if(bailian&&decision.status==='continue'&&decision.next&&assessAction(s,makeGoal(s,request,decision,chosenDays),decision.next).kind==='blocked')return fallback();
+  if(bailian){const checked=preserveGoal(decision);return checked.status==='continue'&&assess(checked)?.kind==='blocked'?fallback(checked):checked}
   return decision;
  }catch(error){
   if(bailian&&!signal?.aborted&&error instanceof AIError&&(error.status===504||/暂时无法响应|尚未生成完整计划/.test(error.message)))return fallback();
