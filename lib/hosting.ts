@@ -3,7 +3,9 @@ import {events,perform,type Choice,type Game,type Hosting} from './game';
 export type HostingStep={state:Game,action:string,reason:string,error?:string};
 
 export function shouldRest(s:Game,h:Hosting){
- const triggered=h.staminaBelow!==null&&s.stamina<h.staminaBelow||h.hpBelow!==null&&s.hp<h.hpBelow;
+ const staminaTriggered=h.staminaBelow!==null&&s.stamina<h.staminaBelow;
+ const hpTriggered=h.hpBelow!==null&&s.hp<h.hpBelow;
+ const triggered=staminaTriggered||hpTriggered;
  const recovering=!!h.resting&&((h.staminaRecoverTo!==null&&h.staminaRecoverTo!==undefined&&s.stamina<h.staminaRecoverTo)||(h.hpRecoverTo!==null&&h.hpRecoverTo!==undefined&&s.hp<h.hpRecoverTo));
  return triggered||recovering;
 }
