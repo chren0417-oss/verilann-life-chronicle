@@ -19,6 +19,7 @@ let captured,calls=0;
 const fetcher=async(url,init)=>{calls++;captured={url,init};return completion()};
 const parsed=await planWithAI(env,state,'这个月先攒钱，别冒险',null,fetcher);
 check(validateDecision(parsed),'valid Bailian completion accepted');
+const fragile=structuredClone(state);fragile.hp=8;fragile.injury=18;const safePlan=await planWithAI(env,fragile,'下个月先攒钱，顺便练剑，别冒险',null,async()=>completion());check(safePlan.next?.action==='rest','low health overrides an unsafe model proposal');
 check(captured.url===base+'/chat/completions','workspace endpoint used');
 check(captured.init.headers.Authorization==='Bearer bailian-test-secret','provider keys isolated');
 check(captured.init.redirect==='manual','redirects cannot forward credentials');
@@ -40,14 +41,14 @@ for(const payload of [
  {...decision,priorities:[]}, {...decision,cash:999999},
  {...decision,next:{...decision.next,action:'add_cash'}}, {...decision,next:{...decision.next,cash:999}},
  {...decision,milestones:[{...decision.milestones[0],cheat:true}]}, {...decision,horizonDays:undefined},
-]){await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>completion(JSON.stringify(payload))));check(!validateDecision(payload),'schema violations rejected');}
+ ]){const recovered=await planWithAI(env,state,'下个月先攒钱，别冒险',null,async()=>completion(JSON.stringify(payload)));check(!validateDecision(payload)&&validateDecision(recovered),'invalid model output is replaced by a safe validated plan');}
 let repairCalls=0;
 const repaired=await planWithAI(env,state,'x',null,async(_url,init)=>{repairCalls++;const outgoing=JSON.parse(init.body);if(repairCalls===1)return completion(JSON.stringify({...decision,notes:'无关说明'}));check(outgoing.messages[0].content.includes('修正'), 'invalid JSON gets one compact repair request');return completion(JSON.stringify(decision))});
 check(repairCalls===2&&validateDecision(repaired),'valid repair is accepted only after local validation');
 const streamCompletion=(content)=>new Response(new ReadableStream({start(controller){const encoder=new TextEncoder();const mid=Math.ceil(content.length/2);for(const payload of [{choices:[{delta:{content:content.slice(0,mid)},finish_reason:null}]},{choices:[{delta:{content:content.slice(mid)},finish_reason:'stop'}]}])controller.enqueue(encoder.encode('data: '+JSON.stringify(payload)+'\n\n'));controller.enqueue(encoder.encode('data: [DONE]\n\n'));controller.close()}}),{headers:{'Content-Type':'text/event-stream'}});
 const streamed=await planWithAI(env,state,'x',null,async()=>streamCompletion(JSON.stringify(decision)));
 check(validateDecision(streamed),'streamed Qwen chunks are assembled and validated');
-for(const [content,reason] of [['','stop'],['not json','stop'],[JSON.stringify(decision),'length'],[JSON.stringify(decision),'content_filter']]){await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>completion(content,reason)));check(true,'incomplete output rejected');}
+ for(const [content,reason] of [['','stop'],['not json','stop'],[JSON.stringify(decision),'length'],[JSON.stringify(decision),'content_filter']]){const recovered=await planWithAI(env,state,'下个月先攒钱，别冒险',null,async()=>completion(content,reason));check(validateDecision(recovered),'incomplete model output falls back to a safe validated plan');}
 for(const [status,code,pattern] of [[403,'AllocationQuota.FreeTierOnly',/免费额度已用尽/],[403,'AccessDenied',/模型权限/],[429,'Throttling.AllocationQuota',/请求过快/],[429,'insufficient_quota',/请求过快/],[400,'Arrearage',/欠费/],[401,'InvalidApiKey',/密钥无效/]]){
  await assert.rejects(()=>planWithAI(env,state,'x',null,async()=>Response.json({error:{code,message:'must not echo upstream secrets'}},{status})),pattern);check(true,'upstream errors classified');
 }

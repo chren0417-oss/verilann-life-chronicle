@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {importTS} from './test-loader.mjs';
 const {createGame,steps,validSave,perform}=await importTS('lib/game.ts');
-const {makeGoal,assessAction,executeGoalAction,validateDecision,goalReached}=await importTS('lib/goal-engine.ts');
+const {makeGoal,assessAction,executeGoalAction,validateDecision,goalReached,fallbackDecision}=await importTS('lib/goal-engine.ts');
 const {planWithAI,aiConfiguration}=await importTS('lib/ai-provider.ts');
 const {pushHistory,popHistory,upsertSlot}=await importTS('lib/save-state.ts');
 const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]||'艾伦 · 男性']));Object.assign(d,{name:'艾伦',gender:'男性',age:'成年 · 适龄',education:'工坊学艺',wealth:'宽裕 · 30银',potential:'罕见亲和'});
@@ -10,6 +10,7 @@ let count=0;function check(v,m){assert.ok(v,m);count++}
 function base(){const s=createGame(d);s.aiGoal=makeGoal(s,'这个月先攒钱，别冒险',decision,null);return s}
 const action=(action,arg='')=>({action,arg,reason:'有助于当前目标'});
 check(validateDecision(decision),'structured plan validates');
+let fallbackState=createGame(d);fallbackState.hp=8;fallbackState.injury=18;const fallback=fallbackDecision(fallbackState,'下个月先攒钱，顺便练剑，别冒险',null);check(validateDecision(fallback)&&fallback.next?.action==='rest','safe fallback preserves a valid goal and prioritizes low health');
 for(const v of [null,{}, {...decision,next:{action:'add_cash',arg:'9999',reason:''}}, {...decision,horizonDays:9999},{...decision,status:'completed'},{...decision,milestones:[{label:'作弊',kind:'skill',key:'无敌',target:100}]},{...decision,milestones:[null]}])check(!validateDecision(v),'malformed model output rejected');
 let s=base();check(validSave(s),'goal saves validate');const original=JSON.stringify(s);let a=assessAction(s,s.aiGoal,action('work'));check(a.kind==='auto','routine work executable');check(JSON.stringify(s)===original,'preview does not mutate state or RNG');const n=executeGoalAction(s,action('work')).state;check(n.day===7&&n.cash>s.cash,'AI uses real economics');check(n.aiGoal.actions.length===1,'action updates goal progress');check(JSON.stringify(s)===original,'execution leaves historical snapshot untouched');let history=pushHistory([],s);check(JSON.stringify(popHistory(history).game)===original,'undo restores goal and whole world');
 s=base();s.aiGoal.deadlineDay=6;check(assessAction(s,s.aiGoal,action('train','剑术')).kind==='blocked','deadline checked before action');s=base();s.cash=45;check(assessAction(s,s.aiGoal,action('train','剑术')).kind==='blocked','training living costs covered');s=base();s.stamina=25;check(assessAction(s,s.aiGoal,action('work')).kind==='blocked','overwork avoided');s=base();s.maxMana=0;check(assessAction(s,s.aiGoal,action('train','元素')).kind==='blocked','magic requirements unchanged');s=base();s.event='wolf';check(assessAction(s,s.aiGoal,action('work')).kind==='blocked','pending event stops automation');

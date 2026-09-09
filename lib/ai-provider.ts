@@ -1,4 +1,4 @@
-import {bailianModelContext,bailianPlannerInstructions,decisionSchema,plannerInstructions,modelContext,validateDecision,type Decision} from './goal-engine';
+import {bailianModelContext,bailianPlannerInstructions,decisionSchema,fallbackDecision,plannerInstructions,modelContext,validateDecision,type Decision} from './goal-engine';
 import type {Game} from './game';
 
 export type AIEnvironment={
@@ -78,6 +78,7 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
  const bailian=env.AI_PROVIDER?.trim()==='bailian';
  const key=(bailian?env.DASHSCOPE_API_KEY:env.OPENAI_API_KEY)!.trim();
  const endpoint=bailian?bailianEndpoint(env.BAILIAN_BASE_URL)!:'https://api.openai.com/v1/responses';
+ const fallback=()=>fallbackDecision(s,request,chosenDays);
  const input=JSON.stringify(bailian?{goal:request,chosenDays,state:bailianModelContext(s)}:{request,chosenDays,context:modelContext(s)});
  // JSON mode does not enforce the schema. Validate every field locally before
  // allowing the existing rules engine to assess or execute any proposed action.
@@ -107,21 +108,22 @@ export async function planWithAI(env:AIEnvironment,s:Game,request:string,chosenD
    return responseBody.output?.flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text||'').join('')||'';
   };
   let result=await upstream(body);
-  if(typeof result!=='string'||!result)throw new AIError('AI 未返回可执行的计划，请换一种目标描述。');
-  let decision:unknown;try{decision=JSON.parse(result)}catch{throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
+  if(typeof result!=='string'||!result){if(bailian)return fallback();throw new AIError('AI 未返回可执行的计划，请换一种目标描述。')}
+  let decision:unknown;try{decision=JSON.parse(result)}catch{if(bailian)return fallback();throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
   if(bailian&&!validateDecision(decision)){
    // Qwen JSON mode occasionally preserves an otherwise harmless explanatory
    // field. Give it one compact correction pass, then apply the same strict
    // local validation before the game can use the proposal.
-   const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});
-   try{decision=JSON.parse(repaired)}catch{throw new AIError('AI 返回的计划格式不完整，已停止执行。')}
+   try{const repaired=await upstream({model:cfg.model,stream:true,enable_thinking:false,max_tokens:bailianTokenLimit,messages:[{role:'system',content:bailianRepairInstructions},{role:'user',content:result.slice(0,6000)}],response_format:{type:'json_object'}});decision=JSON.parse(repaired)}catch(error){if(signal?.aborted)throw error;return fallback()}
   }
-  if(!validateDecision(decision))throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。');
+  if(!validateDecision(decision)){if(bailian)return fallback();throw new AIError('AI 的计划包含无效步骤或指标，已停止执行。')}
+  if(bailian&&decision.status==='continue'&&(s.hp<35||s.injury>20||s.stamina<30)){const safe=fallback();return {...decision,message:safe.message,next:safe.next}}
   return decision;
  }catch(error){
+  if(bailian&&!signal?.aborted&&error instanceof AIError&&(error.status===504||/暂时无法响应|尚未生成完整计划/.test(error.message)))return fallback();
   if(error instanceof AIError)throw error;
-  if(controller.signal.aborted)throw new AIError(bailian?'百炼响应超时，请稍后重试；当前存档没有变化。':'AI 请求已取消或超时，你可以继续手动游玩。',504);
-  if(bailian&&Date.now()-started>=7000)throw new AIError('百炼响应超时，请稍后重试；当前存档没有变化。',504);
+  if(controller.signal.aborted){if(bailian&&!signal?.aborted)return fallback();throw new AIError('AI 请求已取消或超时，你可以继续手动游玩。',504)}
+  if(bailian&&Date.now()-started>=7000)return fallback();
   throw new AIError(`连接${cfg.provider}失败，请稍后重试。`);
  }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
 }
