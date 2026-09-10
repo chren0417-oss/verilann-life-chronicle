@@ -41,3 +41,7 @@ next-env.d.ts
 
 !.env.example
 .dev.vars*
+
+# personal saves
+/cundang/
+/dist/
