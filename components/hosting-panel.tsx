@@ -13,8 +13,8 @@ const specialLog=(e:{title:string,text:string,changes?:string[]})=>{const t=e.ti
 
 export default function HostingPanel({game,slotId,onCommit,getRevision,onEnterBattle}:Props){
  const existing=game.hosting;const [action,setAction]=useState<Hosting['action']>(existing?.action||'work'),[temperament,setTemperament]=useState<Hosting['temperament']>(existing?.temperament||'balanced'),[staminaOn,setStaminaOn]=useState(existing?.staminaBelow!==null&&existing?.staminaBelow!==undefined),[hpOn,setHpOn]=useState(existing?.hpBelow!==null&&existing?.hpBelow!==undefined),[stamina,setStamina]=useState(existing?.staminaBelow??35),[hp,setHp]=useState(Math.min(existing?.hpBelow??10,10)),[running,setRunning]=useState(false),[message,setMessage]=useState(existing?.reason||'尚未开始模拟。'),[rate,setRate]=useState(2),[modal,setModal]=useState(false),[replay,setReplay]=useState<{day:number,title:string,text:string,changes?:string[]}[]>([]);
- const prevActive=useRef(!!game.hosting?.active);
- useEffect(()=>{const a2=!!game.hosting?.active;if(a2&&!prevActive.current&&!running)run(game);prevActive.current=a2},[game.hosting?.active]);
+ const prevActive=useRef(!!game.hosting?.active),prevBattle=useRef(game.battle);
+ useEffect(()=>{const a2=!!game.hosting?.active;const settled=prevBattle.current!==null&&game.battle===null&&a2;if((a2&&!prevActive.current||settled)&&!running)run(game);prevActive.current=a2;prevBattle.current=game.battle},[game.hosting?.active,game.battle]);
  const serial=useRef(0),live=useRef(true),current=useRef(game),revision=useRef(getRevision()),rateRef=useRef(2),replayLen=useRef(0),replayBox=useRef<HTMLDivElement|null>(null);current.current=game;
  useEffect(()=>{live.current=true;return ()=>{live.current=false;serial.current++}},[]);
  useEffect(()=>{if(game.battle?.done&&game.battle.won&&game.hosting?.active&&!running){revision.current=getRevision();setModal(true)}if(game.battle?.done&&!game.battle.won&&game.hosting?.active){const next={...game,hosting:{...game.hosting!,active:false,reason:'战斗失利，模拟已暂停。请先处理伤势，再决定是否继续。'}};commit(next,game,false);setModal(false)}},[game.battle?.done,game.battle?.won,game.hosting?.active]);
