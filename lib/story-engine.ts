@@ -16,7 +16,7 @@ const clamp=(x:number,min=0,max=100)=>Math.min(max,Math.max(min,x));
 export function compileStoryEvents(cards:StoryCard[]):Event[]{
   return cards.map(c=>({
     id:c.id,
-    kind:'剧情 · '+arcName(c.arcId),
+    kind:c.kindName || '剧情 · '+arcName(c.arcId),
     title:c.title,
     text:c.premise,
     condition:c.condition,
@@ -30,6 +30,13 @@ export function compileStoryEvents(cards:StoryCard[]):Event[]{
 
 export function storyCardById(id:string):StoryCard|undefined{
   return storyCards.find(c=>c.id===id);
+}
+
+// 该事件是否已因截止过期而收场（过期后不再挂出）
+export function storyExpired(s:Game,eventId:string):boolean{
+  const card = storyCardById(eventId);
+  if(!card) return false;
+  return arcOf(s,card.arcId).history.includes(card.id+':expire');
 }
 
 // ---- 事件被挂入 s.event 时的钩子：注册截止日期（出现即计时）----

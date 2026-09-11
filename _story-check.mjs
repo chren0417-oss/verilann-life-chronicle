@@ -13,11 +13,12 @@ const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]]));Object.assign(d,{
 // ---- 1. 事件库结构 ----
 const mistEvents=events.filter(e=>e.id.startsWith('mist-door-'));
 check(mistEvents.length===8,'暮林 8 张事件卡已编译入事件库');
-check(storyCards.length===18,'storyCards 共 18 张（暮林8+五国各2）');
+check(storyCards.length===49,'storyCards 共 49 张（暮林8+五国各5+关系13+碎冠3）');
 check(events.every(e=>!e.id.startsWith('farmer-')&&!e.id.startsWith('knight-')),'原职业剧情已全部移除');
-check(events.filter(e=>e.kind.startsWith('剧情 ·')).length===18,'18 个事件 kind 为剧情标签');
+check(events.filter(e=>e.kind.startsWith('剧情 ·')).length===36,'36 个剧情事件（五国25+暮林8+碎冠3）');
+check(events.filter(e=>e.kind.startsWith('关系 ·')).length===13,'13 个NPC关系事件');
 const fiveArcs=['loen-tax','castia-eagle','north-oath','alma-ports','holy-candle'];
-for(const a of fiveArcs)check(events.filter(e=>e.id.startsWith(a+'-')).length===2,'['+a+'] 2 张事件卡已编译');
+for(const a of fiveArcs)check(events.filter(e=>e.id.startsWith(a+'-')).length===5,'['+a+'] 5 张事件卡已编译（3-5阶段齐全）');
 
 // ---- 2. 卡1 触发与分支 ----
 let s=createGame(d);
@@ -196,6 +197,127 @@ for(const [arc,c1,c2,region,npcKey] of five){
   check(r.state.worldStory.arcs['loen-tax'].flags['loen-ledger']===true,'洛恩卡2 写入 loen-ledger');
   check(r.state.worldStory.arcs['loen-tax'].phase===2,'洛恩卡2 推进 phase=2');
   check(r.state.worldStory.npcs['loen-bella'].trust>=0,'洛恩卡2 NPC 关系落账');
+}
+
+// ---- 14. 其余五国第二/三阶段（卡3-5 闭环：对抗→抉择→余波）----
+const five3=[['loen-tax','loen-ledger','loen-side-guild','loen-open','crown-clue-loen'],['castia-eagle','castia-medic','castia-side-army','castia-pursuit','crown-clue-castia'],['north-oath','north-mediate','north-side-freeze','north-migrate','crown-clue-north'],['alma-ports','alma-reopen','alma-side-council','alma-credit','crown-clue-alma'],['holy-candle','holy-rescue','holy-side-clara','holy-truth-heal','crown-clue-holy']];
+for(const [arc,c2f,c3f,c4f,crownFlag] of five3){
+  const region=five.find(f=>f[0]===arc)[3];
+  let s=createGame(d);s.region=region;
+  s.worldStory.arcs[arc].phase=2;s.worldStory.arcs[arc].flags[c2f]=true;
+  let got3=false;
+  for(let i=0;i<15&&!got3;i++){const r=perform(s,'work');s=r.state;got3=s.event===arc+'-3';}
+  check(got3,'['+arc+'] 卡2后轮询可挂出卡3');
+  if(got3){const r=perform(s,'event','0');check(!r.error&&r.state.worldStory.arcs[arc].phase>=3,'['+arc+'] 卡3 选A推进 phase>=3');s=r.state;}
+  else{s=perform(s,'event','0').state;}
+  let got4=false;
+  for(let i=0;i<15&&!got4;i++){const r=perform(s,'work');s=r.state;got4=s.event===arc+'-4';}
+  check(got4,'['+arc+'] 卡3后轮询可挂出卡4');
+  if(got4){const r=perform(s,'event','0');check(!r.error&&r.state.worldStory.arcs[arc].phase>=4,'['+arc+'] 卡4 选A推进 phase>=4');s=r.state;}
+  else{s=perform(s,'event','0').state;}
+  let got5=false;
+  for(let i=0;i<15&&!got5;i++){const r=perform(s,'work');s=r.state;got5=s.event===arc+'-5';}
+  check(got5,'['+arc+'] 卡4后轮询可挂出卡5');
+  if(got5){
+    const r=perform(s,'event','0');
+    check(!r.error&&r.state.worldStory.arcs[arc].phase===5,'['+arc+'] 卡5 选A收束 phase=5');
+    check(!!r.state.worldStory.arcs[arc].dominantFaction,'['+arc+'] 卡5 写入主导势力');
+    check(r.state.worldStory.arcs[arc].flags[crownFlag]===true,'['+arc+'] 卡5 写入碎冠线索 '+crownFlag);
+  }
+}
+// 卡3 截止过期：洛恩卡3 为例
+{
+  let s=createGame(d);s.region=0;
+  s.worldStory.arcs['loen-tax'].phase=2;s.worldStory.arcs['loen-tax'].flags['loen-ledger']=true;
+  for(let i=0;i<15;i++){const r=perform(s,'work');s=r.state;if(s.event==='loen-tax-3')break;}
+  onStoryQueued(s,'loen-tax-3');
+  const t0=s.worldStory.arcs['loen-tax'].tension;
+  let s2={...s};s2.day=s.day+12;
+  advanceWorldStory(s2,12);
+  check(s2.worldStory.arcs['loen-tax'].tension>t0,'洛恩卡3 逾期后 tension 上升');
+}
+
+// ---- 15. NPC 个人关系事件（§4）----
+const npcShort={'loen-bella':'bella','loen-simon':'simon','castia-varian':'varian','castia-elena':'elena','north-hilda':'hilda','north-bran':'bran','alma-maira':'maira','alma-kalo':'kalo','holy-clara':'clara','holy-rosa':'rosa','mist-tess':'tess','mist-elin':'elin','mist-moore':'moore'};
+const npcCases=[['loen-bella',0],['loen-simon',0],['castia-varian',1],['castia-elena',1],['north-hilda',2],['north-bran',2],['alma-maira',3],['alma-kalo',3],['holy-clara',4],['holy-rosa',4],['mist-tess',5],['mist-elin',5],['mist-moore',5]];
+for(const [npcId,region] of npcCases){
+  let s=createGame(d);s.region=region;
+  // 抬高地区弧线 phase（无 flag），排除地区卡抢占轮询，只剩关系事件
+  const arcIds=['loen-tax','castia-eagle','north-oath','alma-ports','holy-candle','mist-door'];
+  s.worldStory.arcs[arcIds[region]].phase=2;
+  const n=s.worldStory.npcs[npcId];
+  const isTrust=npcId==='loen-simon'||npcId==='castia-varian'||npcId==='north-bran'||npcId==='alma-maira'||npcId==='holy-clara'||npcId==='mist-elin';
+  const isInterest=npcId==='mist-moore';
+  if(isTrust)n.trust=60;else if(isInterest)n.interest=60;else n.affinity=65;
+  const evId='npc-'+npcShort[npcId];
+  let got=false;
+  for(let i=0;i<15&&!got;i++){const r=perform(s,'work');s=r.state;got=s.event===evId;}
+  check(got,npcId+' 关系达标后轮询可挂出个人事件');
+  if(got){
+    const before=s.worldStory.npcs[npcId].relationship;
+    const r=perform(s,'event','0');
+    check(!r.error,npcId+' 个人事件选A可执行');
+    check(r.state.worldStory.npcs[npcId].relationship!=='陌生'||before!=='陌生',npcId+' 关系已升级（'+r.state.worldStory.npcs[npcId].relationship+'）');
+  } else { s=perform(s,'event','0').state; }
+}
+
+// ---- 16. 碎冠之夜跨区终局（§2/§7.2 卡8 汇合）----
+{
+  let s=createGame(d);s.region=0;
+  s.worldStory.arcs['loen-tax'].phase=4;s.worldStory.arcs['castia-eagle'].phase=4;
+  let got=false;
+  for(let i=0;i<15&&!got;i++){const r=perform(s,'work');s=r.state;got=s.event==='crown-1';}
+  check(got,'两条地区线到 phase4 后跨区可挂出 碎冠之夜卡1');
+  if(got){
+    const r=perform(s,'event','0');
+    check(!r.error&&r.state.worldStory.arcs['crown-night'].phase>=1,'碎冠卡1 选A推进');
+    check(r.state.worldStory.arcs['crown-night'].flags['crown-probe']===true,'碎冠卡1 写入 crown-probe');
+    s=r.state;
+  } else { s=perform(s,'event','0').state; }
+  s.worldStory.arcs['north-oath'].phase=4;
+  let got2=false;
+  for(let i=0;i<15&&!got2;i++){const r=perform(s,'work');s=r.state;got2=s.event==='crown-2';}
+  check(got2,'三条线 phase4 后挂出碎冠卡2');
+  if(got2){const r=perform(s,'event','0');check(!r.error&&r.state.worldStory.arcs['crown-night'].phase>=2,'碎冠卡2 选A推进');s=r.state;}
+  else{s=perform(s,'event','0').state;}
+  s.worldStory.arcs['alma-ports'].phase=4;s.worldStory.arcs['holy-candle'].phase=4;
+  let got3=false;
+  for(let i=0;i<15&&!got3;i++){const r=perform(s,'work');s=r.state;got3=s.event==='crown-3';}
+  check(got3,'四条线 phase4 后挂出碎冠卡3');
+  if(got3){
+    const r=perform(s,'event','0');
+    check(!r.error&&r.state.worldStory.arcs['crown-night'].phase===3,'碎冠卡3 选A收束 phase=3');
+    check(!!r.state.worldStory.arcs['crown-night'].dominantFaction,'碎冠卡3 写入主导势力');
+  }
+}
+// 碎冠之夜弧线可迁移（额外弧线保留）
+{
+  const ws=defaultWorldStory();
+  ws.arcs['crown-night']={id:'crown-night',phase:2,tension:40,scarcity:20,danger:30,knowledge:25,dominantFaction:null,flags:{'crown-probe':true},deadlines:{},history:['crown-1']};
+  const m=normalizeWorldStory(JSON.parse(JSON.stringify({arcs:ws.arcs,npcs:{}})),allStoryNpcIds);
+  check(m.arcs['crown-night']&&m.arcs['crown-night'].phase===2,'碎冠之夜弧线在存档迁移后保留');
+  check(m.arcs['crown-night'].flags['crown-probe']===true,'碎冠之夜旗标迁移保留');
+}
+
+// ---- 17. 截止过期的事件不再重复挂出 ----
+{
+  let s=createGame(d);s.region=0;
+  s.worldStory.arcs['loen-tax'].phase=2;s.worldStory.arcs['loen-tax'].flags['loen-ledger']=true;
+  s.worldStory.arcs['loen-tax'].history.push('loen-tax-2:expire');
+  let got=false;
+  for(let i=0;i<15&&!got;i++){const r=perform(s,'work');s=r.state;if(s.event==='loen-tax-2')got=true;}
+  check(!got,'截止过期的事件不再重复挂出');
+}
+// 过期收场也推进弧线（同卡3 过期张力）
+{
+  let s=createGame(d);s.region=0;
+  s.worldStory.arcs['loen-tax'].phase=2;s.worldStory.arcs['loen-tax'].flags['loen-ledger']=true;
+  onStoryQueued(s,'loen-tax-2');
+  const t0=s.worldStory.arcs['loen-tax'].tension;
+  let s2={...s};s2.day=s.day+12;
+  advanceWorldStory(s2,12);
+  check(s2.worldStory.arcs['loen-tax'].history.includes('loen-tax-2:expire'),'卡2 过期标记写入 history');
+  check(s2.worldStory.arcs['loen-tax'].tension>t0,'卡2 逾期推进世界（张力上升）');
 }
 
 console.log(`\n世界剧情测试: ${pass} PASS / ${fail} FAIL`);

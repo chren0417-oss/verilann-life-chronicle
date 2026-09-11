@@ -116,6 +116,25 @@ export function normalizeWorldStory(v:any, npcIds:string[]=[]):WorldStoryState{
         };
       } else arcs[id] = d.arcs[id];
     }
+    // 保留非标准弧线（如碎冠之夜 crown-night）：结构与 ArcState 相同
+    for(const k of Object.keys(v.arcs)){
+      if(ARCS.includes(k as any)) continue;
+      const a = v.arcs[k];
+      if(a && typeof a==='object' && !Array.isArray(a) && Number.isInteger(a.phase) && a.phase>=0 && a.phase<=5){
+        arcs[k] = {
+          id:k,
+          phase:a.phase,
+          tension:clamp(Number.isFinite(a.tension)?a.tension:30),
+          scarcity:clamp(Number.isFinite(a.scarcity)?a.scarcity:20),
+          danger:clamp(Number.isFinite(a.danger)?a.danger:15),
+          knowledge:clamp(Number.isFinite(a.knowledge)?a.knowledge:0),
+          dominantFaction:typeof a.dominantFaction==='string'?a.dominantFaction:null,
+          flags:a.flags&&typeof a.flags==='object'?{...a.flags}:{},
+          deadlines:a.deadlines&&typeof a.deadlines==='object'?{...a.deadlines}:{},
+          history:Array.isArray(a.history)?a.history.filter((x:any)=>typeof x==='string'):[],
+        };
+      }
+    }
     out.arcs = arcs;
   }
   if(v.npcs && typeof v.npcs==='object' && !Array.isArray(v.npcs)){
@@ -164,6 +183,20 @@ export function validWorldStory(v:any, npcIds:string[]=[]):boolean{
         if(!Number.isFinite(n[k])) return false;
       if(!relationshipNames.includes(n.relationship)) return false;
       if(typeof n.alive!=='boolean') return false;
+    }
+  }
+  // 额外弧线（如 crown-night）若存在也必须结构合法
+  if(v.arcs && typeof v.arcs==='object' && !Array.isArray(v.arcs)){
+    for(const k of Object.keys(v.arcs)){
+      if(ARCS.includes(k as any)) continue;
+      const a = v.arcs[k];
+      if(!a || typeof a!=='object' || Array.isArray(a)) return false;
+      if(!Number.isInteger(a.phase)||a.phase<0||a.phase>5) return false;
+      for(const f of ['tension','scarcity','danger','knowledge'])
+        if(!Number.isFinite(a[f])||a[f]<0||a[f]>100) return false;
+      if(!(typeof a.flags==='object'&&!Array.isArray(a.flags))) return false;
+      if(!(typeof a.deadlines==='object'&&!Array.isArray(a.deadlines))) return false;
+      if(!Array.isArray(a.history)||!a.history.every((x:any)=>typeof x==='string')) return false;
     }
   }
   return true;
