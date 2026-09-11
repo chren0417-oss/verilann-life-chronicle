@@ -67,6 +67,10 @@ export function arcName(arcId:string):string{
 // 暮林边境 · 树根下的门 —— 完整 8 步事件链（§7.2）
 // ============================================================
 const M='mist-door';
+// 其余五国第一阶段 helpers（§3.1–§3.5）
+const LO='loen-tax',CA='castia-eagle',NO='north-oath',AL='alma-ports',HO='holy-candle';
+const inLoen=(s:Game)=>s.region===0,inCastia=(s:Game)=>s.region===1,inNorth=(s:Game)=>s.region===2,inAlma=(s:Game)=>s.region===3,inHoly=(s:Game)=>s.region===4;
+const seenL=(s:Game,id:string)=>arcSeen(s,LO,id),seenC=(s:Game,id:string)=>arcSeen(s,CA,id),seenN=(s:Game,id:string)=>arcSeen(s,NO,id),seenA=(s:Game,id:string)=>arcSeen(s,AL,id),seenH=(s:Game,id:string)=>arcSeen(s,HO,id);
 
 const inMist=(s:Game)=>s.region===5;
 const seen=(s:Game,id:string)=>arcSeen(s,M,id);
@@ -219,5 +223,215 @@ export const storyCards:StoryCard[] = [
     {id:'c',label:'留给后代',detail:'1日 · 声望 · 传承',days:1,fame:6,item:'古代碎片',follow:'你把这个名字抄进家中的账册夹页，连同那段见闻。若有一天有人翻到，会知道这扇门后曾发生过什么。',arc:{knowledge:10,phase:5},setFlags:['mist-truth-heirloom'],flag:'story:mist-door-8'},
   ],
   flags:['mist-truth-public','mist-truth-burned','mist-truth-heirloom'],
+},
+// ============================================================
+// 洛恩王国 · 河谷税册 —— 第一阶段（§3.1）
+// ============================================================
+{ // 卡1 · 传闻：粮价异常、新税册
+  id:'loen-tax-1',arcId:LO,phase:1,
+  title:'新税册',
+  premise:`灰河镇的秋市比往年冷清。粮价贴着"战时粮税"的告示涨了三成，税吏却换了一本更厚的册子，挨家挨户登记田亩——登记过的农户，隔天就有人上门"核对"，核对完，地契便换了个名字。
+
+酒馆里，镇长赫尔曼·灰河给自己倒了第三杯酒，叹气说："上面要的，我拦不住。"行会会长贝拉却把账本拍在桌上："税册里多算的亩数，够买三座谷仓。谁信这是王都的意思？"
+
+门外，新来的税务官赛门·霍姆正低着头核对一卷文书，指节发白。你端着酒经过，他叫住你，声音很轻："你……识字吗？"`,
+  condition:s=>inLoen(s)&&!seenL(s,'loen-tax-1')&&arcOf(s,LO).phase===0,
+  choices:[
+    {id:'a',label:'帮邻里核算税册',detail:'3日 · 识字考验 · 核对田亩与税额',days:3,skill:'识字',difficulty:14,reward:150,follow:'你把三户邻居的田亩数一一核对，发现税册上多算了两成。带着证据去找贝拉时，她眯起眼看了你很久，说："你这样的人，行会用得着。"',npc:[{id:'loen-bella',trust:10,affinity:6}],arc:{knowledge:12,phase:1},setFlags:['loen-audit'],flag:'story:loen-tax-1'},
+    {id:'b',label:'低价收粮囤货',detail:'2日 · 1银50铜 · 贸易',days:2,cost:150,reward:450,follow:'你趁乱收了几车存粮，藏在行会旧仓。赫尔曼路过时皱了皱眉，没说什么——但你看见他在税册上把你的名字，添到了"殷实户"一栏。',npc:[{id:'loen-bella',interest:8},{id:'loen-hermann',interest:-6}],arc:{scarcity:8,tension:6,phase:1},setFlags:['loen-hoard'],flag:'story:loen-tax-1'},
+    {id:'c',label:'替税吏跑腿登记',detail:'1日 · 礼仪考验',days:1,skill:'礼仪',difficulty:10,reward:100,fame:4,follow:'你陪赛门挨户登记，替他说了不少软话，也帮他挡下几回白眼。收工时，他低声道谢，又补了一句："这册子上有些数……连我也不全信。"',npc:[{id:'loen-simon',trust:10}],arc:{tension:-4,phase:1},setFlags:['loen-clerk'],flag:'story:loen-tax-1'},
+  ],
+  flags:['loen-audit','loen-hoard','loen-clerk'],
+},
+{
+  id:'loen-tax-2',arcId:LO,phase:2,
+  title:'粮仓封存',
+  premise:`王室征粮令隔日送达：灰河镇的官仓即日起封存，任何人不得开仓。封条贴上的当晚，三户佃农被房东逐出，行李堆在街心；贝拉堵在仓门口，指着封条骂到嗓子哑。
+
+赫尔曼躲进了镇公所，只传出一句话："照办，别闹事。"而赛门连夜收拾了行囊——有人看见他往王都方向递了一封信，信里夹着一枚家传的银戒指。
+
+夜里，被逐的佃农蜷在墙角，向你伸出手，指缝里夹着一张揉皱的地契："这上面……多画了一亩，画的是我家的地。"`,
+  condition:s=>inLoen(s)&&!seenL(s,'loen-tax-2')&&arcOf(s,LO).phase>=1&&(arcOf(s,LO).flags['loen-audit']||arcOf(s,LO).flags['loen-hoard']||arcOf(s,LO).flags['loen-clerk']),
+  deadline:{key:'loen-evict',days:10,onExpire:(s,a)=>{
+    const ch:string[]=[];
+    ch.push('封仓令生效满十日，又有五户佃农失地，逃往邻镇');
+    a.tension=Math.min(100,a.tension+8);a.scarcity=Math.min(100,a.scarcity+6);
+    const ws=s.worldStory;if(ws&&ws.npcs['loen-hermann']){ws.npcs['loen-hermann'].trust=Math.max(0,ws.npcs['loen-hermann'].trust-6);ch.push('赫尔曼镇长信任 −6 —— 你没能在他最难的时候伸手');}
+    return ch;
+  }},
+  choices:[
+    {id:'a',label:'护送账本赴王都',detail:'4日 · 潜行/骑术考验 · 高风险',days:4,skill:'潜行',difficulty:26,reward:350,follow:'你带着贝拉抄录的税册副本，避开税吏耳目连夜出镇。王都的旧友替你转呈了文书——回程时，赛门追到渡口，低声说："税署撤了对灰河的加征令。你救了这镇子，也救了我。"',npc:[{id:'loen-bella',trust:12},{id:'loen-simon',trust:12}],arc:{knowledge:18,tension:-10,phase:2},setFlags:['loen-ledger'],flag:'story:loen-tax-2'},
+    {id:'b',label:'组织佃户互助',detail:'3日 · 礼仪/指挥考验',days:3,skill:'礼仪',difficulty:18,reward:200,fame:6,follow:'你牵头把失地佃户编成互助组，替他们联络邻镇的地主与短工。赫尔曼从镇公所探出半个头，看了一下午，终于叹了口气："镇子要是有两个你就好了。"',npc:[{id:'loen-hermann',trust:10,affinity:6}],arc:{scarcity:-6,tension:-4,phase:2},setFlags:['loen-help'],flag:'story:loen-tax-2'},
+    {id:'c',label:'买通守仓人偷运存粮',detail:'2日 · 3银 · 贸易 · 高风险',days:2,cost:300,reward:700,follow:'你用银钱买通守仓的老卒，趁夜偷运出半仓陈粮，转手高价卖给邻镇。钱是赚到了，可第二天封条下多了一具看守的尸体——有人把这事捅到了王都。',npc:[{id:'loen-bella',interest:6,affinity:-6}],arc:{danger:14,tension:8,phase:2},setFlags:['loen-smuggle'],flag:'story:loen-tax-2'},
+  ],
+  flags:['loen-ledger','loen-help','loen-smuggle'],
+},
+// ============================================================
+// 卡斯蒂亚帝国 · 鹰旗与铁印 —— 第一阶段（§3.2）
+// ============================================================
+{ // 卡1 · 传闻：征兵令与军需订单
+  id:'castia-eagle-1',arcId:CA,phase:1,
+  title:'征兵令',
+  premise:`鹰嘴堡城门今晨贴出新的征兵令：凡十六岁以上男丁，秋收后须应募入伍，戍边一年。告示下围满了人——有人攥着锄头，有人攥着银币，都想挤到前面再看一眼"军饷每月六银"那行字。
+
+铁匠行会会长维塔·铁砧站在自家铺子门口，敲着铁砧说："军单涨价了，涨两成。想打的，拿钱来。"驿站主伊莲娜把一封盖着火漆的信掖进怀里，冲你眨眨眼："王都那位卢修斯大人，又往边境塞人了。"
+
+傍晚，一队新兵在城门口集合。队伍末尾，有个少年抱着新发的铁盔，眼泪在眼眶里打转，没敢让它掉下来。`,
+  condition:s=>inCastia(s)&&!seenC(s,'castia-eagle-1')&&arcOf(s,CA).phase===0,
+  choices:[
+    {id:'a',label:'应征入伍',detail:'3日 · 剑术/骑术考验 · 军饷',days:3,skill:'剑术',difficulty:18,reward:500,fame:8,follow:'你披上军服编入鹰嘴堡前哨。操练的间隙，大元帅瓦里安路过校场，在你面前停了一停："使剑的架势还行。边境缺的就是肯把命押在刀口上的人。"',npc:[{id:'castia-varian',trust:8,affinity:6}],arc:{tension:6,phase:1},setFlags:['castia-enlist'],flag:'story:castia-eagle-1'},
+    {id:'b',label:'承包军需订单',detail:'3日 · 5银 · 贸易',days:3,cost:500,reward:900,follow:'你以行会名义签下军需供货契，从铁砧坊订购军靴与箭杆。维塔·铁砧亲自验了你的定金，难得咧嘴："账目清楚，打仗也清楚——你这人，行。"',npc:[{id:'castia-vita',trust:10,interest:10}],arc:{scarcity:8,phase:1},setFlags:['castia-supply'],flag:'story:castia-eagle-1'},
+    {id:'c',label:'放走逃兵',detail:'2日 · 潜行考验 · 风险',days:2,skill:'潜行',difficulty:22,reward:120,follow:'你替那个抱铁盔的少年换了便衣，从驿站的侧门送出城。伊莲娜假装没看见，只在收你房钱时压低了声音："边境上，心软的人命短。你保重。"',npc:[{id:'castia-elena',trust:12,affinity:6}],arc:{danger:10,phase:1},setFlags:['castia-harbor'],flag:'story:castia-eagle-1'},
+  ],
+  flags:['castia-enlist','castia-supply','castia-harbor'],
+},
+{
+  id:'castia-eagle-2',arcId:CA,phase:2,
+  title:'边境旅检',
+  premise:`征兵令颁布半月后，鹰嘴堡通往北境的官道增设了三道旅检。过关要验身份文书，文书要盖驿站的章，盖章要排队，排队要花钱。伊莲娜的驿站被扣下两车皮货，说"货单与实物不符"。
+
+铁器价格又涨了一成，铁砧坊的学徒们累得在炉边打盹。而城北的空地上，伤兵一天比一天多——有人断了腿，有人烧得说胡话，军医人手不够，只能靠草药勉强吊着命。
+
+伊莲娜把一杯热酒推到你面前，眼下一片青黑："帮我个忙吧。这关，快过不下去了。"`,
+  condition:s=>inCastia(s)&&!seenC(s,'castia-eagle-2')&&arcOf(s,CA).phase>=1&&(arcOf(s,CA).flags['castia-enlist']||arcOf(s,CA).flags['castia-supply']||arcOf(s,CA).flags['castia-harbor']),
+  deadline:{key:'castia-check',days:10,onExpire:(s,a)=>{
+    const ch:string[]=[];
+    ch.push('旅检持续加严，商路半断，边境物价再涨');
+    a.tension=Math.min(100,a.tension+8);a.scarcity=Math.min(100,a.scarcity+8);
+    const ws=s.worldStory;if(ws&&ws.npcs['castia-elena']){ws.npcs['castia-elena'].trust=Math.max(0,ws.npcs['castia-elena'].trust-5);ch.push('伊莲娜信任 −5 —— 她的驿站被拖垮了');}
+    return ch;
+  }},
+  choices:[
+    {id:'a',label:'护送伤兵回城',detail:'4日 · 医术/骑术考验',days:4,skill:'医术',difficulty:26,reward:400,fame:6,follow:'你一路照料伤员，把七个重伤的兵士活着送进城。军医官握住你的手连声道谢；瓦里安在城头目送你们入城，向你行了一个军礼。',npc:[{id:'castia-varian',trust:12}],arc:{knowledge:10,danger:-8,phase:2},setFlags:['castia-medic'],flag:'story:castia-eagle-2'},
+    {id:'b',label:'伪造过境文书',detail:'2日 · 识字/潜行考验 · 高风险',days:2,skill:'识字',difficulty:28,reward:600,follow:'你仿照驿站印信连夜赶制文书，替伊莲娜的皮货过了关。她如数付了钱，却把那份假文书收进了铁匣："这东西能救命，也能要命——别让它流出去。"',npc:[{id:'castia-elena',trust:8}],arc:{danger:16,phase:2},setFlags:['castia-forge-pass'],flag:'story:castia-eagle-2'},
+    {id:'c',label:'向卢修斯递请愿书',detail:'3日 · 礼仪考验 · 声望',days:3,skill:'礼仪',difficulty:20,reward:250,fame:8,follow:'你借驿站的信使把请愿书递进王都，请首席大臣放宽旅检。回信比想象中快，措辞客气得滴水不漏："边务繁重，望卿体谅。"——至少，旅检松了一天。',npc:[{id:'castia-lucius',trust:6,interest:6}],arc:{tension:-8,phase:2},setFlags:['castia-petition'],flag:'story:castia-eagle-2'},
+  ],
+  flags:['castia-medic','castia-forge-pass','castia-petition'],
+},
+// ============================================================
+// 北境诸领 · 长冬盟誓 —— 第一阶段（§3.3）
+// ============================================================
+{ // 卡1 · 传闻：入冬提前、粮价上涨
+  id:'north-oath-1',arcId:NO,phase:1,
+  title:'提前的雪',
+  premise:`第一场雪落下来那天，冻溪镇的柴火还堆在院子里没来得及收。老猎户们说，这样的雪，往年要再等一个月。
+
+粮铺门口排起了长队，掌柜把"面粉限购"的木牌挂了三遍。冻溪族长艾琳·冻溪站在自家的粮仓前，看着只剩半仓的谷子，眉头拧成了结。议会女长老希尔达连夜召集各氏族议事，火塘边挤满了人。
+
+大领主布兰恩·白霜最后开口，声音像冻过的石头："雪来得早，狼来得更早。隘口先封起来，谁家粮不够，拿猎获来换。"有人应和，有人冷笑——粮不够的氏族，连猎获都没有。`,
+  condition:s=>inNorth(s)&&!seenN(s,'north-oath-1')&&arcOf(s,NO).phase===0,
+  choices:[
+    {id:'a',label:'运粮接济冻溪',detail:'3日 · 5银 · 贸易/耕种',days:3,cost:500,reward:200,follow:'你从南方商队手里匀出粮车，冒雪送到冻溪。艾琳·冻溪亲自接的粮，沉默地拍了拍你的肩，半晌说了句："雪地里记恩的人少，你算一个。"',npc:[{id:'north-elin',trust:12,affinity:8}],arc:{scarcity:-10,phase:1},setFlags:['north-grain'],flag:'story:north-oath-1'},
+    {id:'b',label:'组猎队围猎',detail:'3日 · 弓术/生存考验',days:3,skill:'弓术',difficulty:18,reward:450,follow:'你带着一队猎手深入北林，七天猎回七头鹿。肉分到各家，孩子的哭声少了。希尔达在火塘边点头："会打猎的人，冬天饿不死自己，也饿不死邻居。"',npc:[{id:'north-hilda',trust:8,affinity:6}],arc:{danger:-6,phase:1},setFlags:['north-hunt'],flag:'story:north-oath-1'},
+    {id:'c',label:'探路寻冬猎地',detail:'4日 · 生存考验 · 高风险',days:4,skill:'生存',difficulty:26,reward:300,follow:'你独自北上探路，在暴雪里摸到一片尚未封冻的河谷，鹿群正聚在那里过冬。回来时你半边脸冻伤，却带回了最值钱的消息。布兰恩听完，罕见地让人给你端了碗热汤。',npc:[{id:'north-bran',trust:8}],arc:{knowledge:12,danger:8,phase:1},setFlags:['north-scout'],flag:'story:north-oath-1'},
+  ],
+  flags:['north-grain','north-hunt','north-scout'],
+},
+{
+  id:'north-oath-2',arcId:NO,phase:2,
+  title:'狼喉隘之争',
+  premise:`雪越积越深，狼喉隘成了各氏族的命门。冻溪要封隘保冬猎地，灰峰要开隘换南方粮食，两族族长在议会上拍案对骂，几乎动刀。
+
+更糟的消息随后传来：有人在隘口的旧矿洞里，撞见布兰恩的长子罗德里克和几个南方商人密谈——商人们带来了采矿契，印泥还新鲜。
+
+布兰恩当众把儿子抽了一顿，却压不下各族的猜疑。希尔达找上你，把一个盖着议会火漆的布袋塞进你手里："隘口不能乱。你走一趟，把路趟平——或者，把真相带回来。"`,
+  condition:s=>inNorth(s)&&!seenN(s,'north-oath-2')&&arcOf(s,NO).phase>=1&&(arcOf(s,NO).flags['north-grain']||arcOf(s,NO).flags['north-hunt']||arcOf(s,NO).flags['north-scout']),
+  deadline:{key:'north-pass',days:10,onExpire:(s,a)=>{
+    const ch:string[]=[];
+    ch.push('隘口之争拖成械斗，两族各伤数人，冬天更难熬了');
+    a.tension=Math.min(100,a.tension+10);a.danger=Math.min(100,a.danger+6);
+    const ws=s.worldStory;if(ws&&ws.npcs['north-bran']){ws.npcs['north-bran'].trust=Math.max(0,ws.npcs['north-bran'].trust-5);ch.push('布兰恩·白霜信任 −5 —— 他失望于无人调停');}
+    return ch;
+  }},
+  choices:[
+    {id:'a',label:'调停两族',detail:'3日 · 礼仪/指挥考验',days:3,skill:'礼仪',difficulty:20,reward:250,fame:8,follow:'你在议会上替两族逐条核算粮账与猎获，把"谁欠谁"摆到台面上。吵了三天的会，终于在一纸换粮契上落了锤。希尔达冲你点头："北方欠你一份人情。"',npc:[{id:'north-hilda',trust:12},{id:'north-elin',trust:8}],arc:{tension:-12,phase:2},setFlags:['north-mediate'],flag:'story:north-oath-2'},
+    {id:'b',label:'查采矿交易真相',detail:'3日 · 潜行/占卜考验 · 高风险',days:3,skill:'潜行',difficulty:28,reward:400,follow:'你潜入旧矿洞，翻出罗德里克与商人签的契书副本——那契书比布兰恩知道的更深：商队背后，是阿尔玛的汇兑商会。布兰恩看完契书，沉默了很久："家门不幸。"',npc:[{id:'north-bran',trust:10}],arc:{knowledge:18,tension:6,phase:2},setFlags:['north-investigate'],flag:'story:north-oath-2'},
+    {id:'c',label:'押粮冒险过隘',detail:'4日 · 贸易/生存考验 · 高风险',days:4,cost:300,reward:700,follow:'你押着粮车趁雪夜摸过狼喉隘，把粮食送进冻溪。路是趟通了，可隘口的风雪也记住了你的脚印——下一次，未必还让你过。',npc:[{id:'north-elin',trust:10}],arc:{scarcity:-10,danger:12,phase:2},setFlags:['north-caravan'],flag:'story:north-oath-2'},
+  ],
+  flags:['north-mediate','north-investigate','north-caravan'],
+},
+// ============================================================
+// 阿尔玛自由城邦 · 十二席议会 —— 第一阶段（§3.4）
+// ============================================================
+{ // 卡1 · 传闻：沉船事故与保险赔付
+  id:'alma-ports-1',arcId:AL,phase:1,
+  title:'沉船之夜',
+  premise:`白鸥号在距白帆港半日航程处触礁沉没，船上三十七人，只救回九人。第二天清早，港口的保险行门前就排起了索赔的长队——可赔付的数目，比保单上写的，少了一半。
+
+盐场工人停工了，船坞的工匠围在议政厅门口讨说法。首席执政官梅拉·沃德当众宣读"事故审查令"，声音平稳得像念账目。港务长卡洛·帆把帽子往地上一摔："审查？先查查保单是谁改的！"
+
+汇兑商会的伊索端着酒杯远远看着，笑眯眯地对你说："城邦嘛，账目清楚，什么都好谈。"`,
+  condition:s=>inAlma(s)&&!seenA(s,'alma-ports-1')&&arcOf(s,AL).phase===0,
+  choices:[
+    {id:'a',label:'出席听证作证',detail:'2日 · 礼仪考验 · 声望',days:2,skill:'礼仪',difficulty:14,reward:200,fame:6,follow:'你在听证会上如实陈述所见，把船坞工人拖欠工钱的账目摆上桌。梅拉当众许诺重查赔付——散会后，她叫住你，语气郑重："城邦需要肯说真话的人。"',npc:[{id:'alma-maira',trust:10}],arc:{tension:-6,phase:1},setFlags:['alma-hearing'],flag:'story:alma-ports-1'},
+    {id:'b',label:'收购船坞债券',detail:'3日 · 10银 · 贸易 · 高风险',days:3,cost:1000,reward:1400,follow:'你用低价吃进船坞的债券，赌议会会救市。伊索在汇兑所门口遇见你，笑容更深了："胆子不小。若城邦垮了，这纸就是废纸；若垮不了，你就发了。"',npc:[{id:'alma-iso',interest:10}],arc:{danger:10,phase:1},setFlags:['alma-bonds'],flag:'story:alma-ports-1'},
+    {id:'c',label:'替卡洛查沉船真相',detail:'3日 · 潜行/占卜考验 · 高风险',days:3,skill:'潜行',difficulty:24,reward:350,follow:'你潜水摸过白鸥号的残骸，在货舱底发现被凿穿的船板——那不是触礁，是人为。卡洛听完，把酒碗重重一放："老子就知道。这账，要有人还。"',npc:[{id:'alma-kalo',trust:12,affinity:6}],arc:{knowledge:15,danger:8,phase:1},setFlags:['alma-probe'],flag:'story:alma-ports-1'},
+  ],
+  flags:['alma-hearing','alma-bonds','alma-probe'],
+},
+{
+  id:'alma-ports-2',arcId:AL,phase:2,
+  title:'挤兑恐慌',
+  premise:`"白鸥号系人为沉没"的消息像潮水一样漫过全港。第二天清晨，伊索的汇兑所前排起长队——人人都要取回存款。柜台后的伙计手忙脚乱，银箱见了底。
+
+议会紧急磋商到半夜，梅拉提的"城邦担保"议案被盐场席位否决；卡洛带着船坞工人堵住议政厅，要求先发欠薪；码头上的货主开始抛售货物，白帆港的物价半天涨了三回。
+
+伊索找到你，难得收起笑脸，把一卷债券递到你面前："帮个忙。城邦的信用，今天要是塌了，明天海面上漂的就是咱们所有人的尸体。"`,
+  condition:s=>inAlma(s)&&!seenA(s,'alma-ports-2')&&arcOf(s,AL).phase>=1&&(arcOf(s,AL).flags['alma-hearing']||arcOf(s,AL).flags['alma-bonds']||arcOf(s,AL).flags['alma-probe']),
+  deadline:{key:'alma-run',days:10,onExpire:(s,a)=>{
+    const ch:string[]=[];
+    ch.push('挤兑潮压垮三家汇兑行，城邦信用崩盘，港口贸易减半');
+    a.tension=Math.min(100,a.tension+12);a.scarcity=Math.min(100,a.scarcity+10);
+    const ws=s.worldStory;if(ws&&ws.npcs['alma-maira']){ws.npcs['alma-maira'].trust=Math.max(0,ws.npcs['alma-maira'].trust-5);ch.push('梅拉·沃德信任 −5 —— 她独自扛下了烂摊子');}
+    return ch;
+  }},
+  choices:[
+    {id:'a',label:'组织工人复工',detail:'3日 · 礼仪/指挥考验',days:3,skill:'礼仪',difficulty:20,reward:300,fame:8,follow:'你带着船坞工头挨个码头劝回工人，先发一半欠薪，余款立契。卡洛亲自督工，三天后船坞重新响起锤声——梅拉站在船坞门口，难得露出一点笑意。',npc:[{id:'alma-kalo',trust:12},{id:'alma-maira',trust:6}],arc:{scarcity:-8,tension:-6,phase:2},setFlags:['alma-reopen'],flag:'story:alma-ports-2'},
+    {id:'b',label:'注资稳定汇兑',detail:'2日 · 20银 · 贸易',days:2,cost:2000,reward:800,follow:'你把积蓄押进汇兑所，当众立誓"先赔船工、再结商款"。挤兑的队伍松动了一角。伊索抹了把汗，罕见地没谈利息："这笔账，城邦记你的。"',npc:[{id:'alma-iso',trust:12,interest:10},{id:'alma-maira',trust:8}],arc:{tension:-10,phase:2},setFlags:['alma-inject'],flag:'story:alma-ports-2'},
+    {id:'c',label:'低价抄底债券',detail:'2日 · 8银 · 贸易 · 高风险',days:2,cost:800,reward:1600,follow:'你趁恐慌吃进一批盐场债券，赌危机过后暴涨。伊索看着你直摇头："这时候还想着发财的，不是疯子，就是将来能当议长的。"',npc:[{id:'alma-iso',interest:6,affinity:-4}],arc:{danger:16,phase:2},setFlags:['alma-bottom'],flag:'story:alma-ports-2'},
+  ],
+  flags:['alma-reopen','alma-inject','alma-bottom'],
+},
+// ============================================================
+// 圣辉教国 · 白烛与灰书 —— 第一阶段（§3.5）
+// ============================================================
+{ // 卡1 · 传闻：朝圣路上的怪病
+  id:'holy-candle-1',arcId:HO,phase:1,
+  title:'朝圣路上的热病',
+  premise:`圣泉镇的朝圣驿站里，一名朝圣者突然高热倒地，舌头底下浮起一片青斑。第二天，同样的症状在三个驿站同时出现。
+
+大修院院长克拉拉第一时间封锁了朝圣路段，亲自守着病人擦洗降温。枢机奥古斯丁却在同一夜签发了搜查令——"查所有接触过灰书的学者"。圣泉药园总管罗莎的药架上，能退热的药只剩最后两捆。
+
+病人在隔间里烧得说胡话，反复念着一个词。罗莎握着你的手，声音发颤："草药不够了。你……能帮我弄些药来吗？"`,
+  condition:s=>inHoly(s)&&!seenH(s,'holy-candle-1')&&arcOf(s,HO).phase===0,
+  choices:[
+    {id:'a',label:'采药支援药园',detail:'3日 · 医术/生存考验',days:3,skill:'医术',difficulty:16,reward:250,follow:'你按罗莎的方子进山采回退热的药草，连夜熬成汤剂。病人们退了烧，罗莎红着眼眶把一包草药塞进你怀里："往后你来药园，药材随你取。"',npc:[{id:'holy-rosa',trust:12,affinity:8}],arc:{scarcity:-8,phase:1},setFlags:['holy-herb'],flag:'story:holy-candle-1'},
+    {id:'b',label:'查热病病源',detail:'3日 · 医术/占卜考验 · 高风险',days:3,skill:'医术',difficulty:24,reward:300,item:'圣水',follow:'你解剖了一具病亡的朝圣者，在血里找到一丝微弱的蓝光——那不是病，是蚀入血肉的以太。克拉拉听完沉默良久："这病……不是天上掉的。"',npc:[{id:'holy-clara',trust:10}],arc:{knowledge:15,danger:8,phase:1},setFlags:['holy-probe'],flag:'story:holy-candle-1'},
+    {id:'c',label:'护送学者躲避审查',detail:'2日 · 潜行考验 · 风险',days:2,skill:'潜行',difficulty:22,reward:150,follow:'你连夜把一位被搜查的学者送出镇，藏进修院地窖。学者临走塞给你半页泛黄的纸："灰书的残页，你若信我，拿去。"远处，奥古斯丁的卫队举着火把，正挨户敲门。',npc:[{id:'holy-clara',trust:8,affinity:6}],arc:{danger:12,phase:1},setFlags:['holy-refuge'],flag:'story:holy-candle-1'},
+  ],
+  flags:['holy-herb','holy-probe','holy-refuge'],
+},
+{
+  id:'holy-candle-2',arcId:HO,phase:2,
+  title:'焚书令',
+  premise:`朝圣路上的热病蔓延到第三个镇子，枢机奥古斯丁在圣泉广场当众宣布：烧毁修院地窖里所有涉及以太的"灰书"残页，任何私藏者，以异端论处。
+
+广场上堆起柴垛，修院学徒们抱着书箱走出地窖，有人低着头，有人咬着嘴唇。克拉拉站在柴垛前，声音不高却字字清楚："烧了书，病不会好。它只会变成没人认识的病。"
+
+罗莎在你耳边低语："地窖最里面还有一箱残页，没登记在册。你若肯动手，天亮前能运出镇。"奥古斯丁的目光扫过人群，最后落在你身上，像在看一份还没签字的搜查令。`,
+  condition:s=>inHoly(s)&&!seenH(s,'holy-candle-2')&&arcOf(s,HO).phase>=1&&(arcOf(s,HO).flags['holy-herb']||arcOf(s,HO).flags['holy-probe']||arcOf(s,HO).flags['holy-refuge']),
+  deadline:{key:'holy-burn',days:10,onExpire:(s,a)=>{
+    const ch:string[]=[];
+    ch.push('灰书残页被焚，相关以太知识从此失传');
+    a.knowledge=Math.max(0,a.knowledge-10);a.tension=Math.min(100,a.tension+6);
+    const ws=s.worldStory;if(ws&&ws.npcs['holy-clara']){ws.npcs['holy-clara'].trust=Math.max(0,ws.npcs['holy-clara'].trust-6);ch.push('克拉拉信任 −6 —— 她没能保住那些书');}
+    return ch;
+  }},
+  choices:[
+    {id:'a',label:'偷运灰书残页',detail:'2日 · 潜行/元素考验 · 高风险',days:2,skill:'潜行',difficulty:26,reward:300,item:'古代碎片',follow:'你趁夜色从地窖暗门搬出那箱残页，藏进城外废弃的磨坊。克拉拉望着你，眼眶泛红："这些纸上记的，可能是救命的方子，也可能是杀人的咒。你选了前者。"',npc:[{id:'holy-clara',trust:12},{id:'holy-augustine',interest:-12}],arc:{knowledge:15,danger:10,phase:2},setFlags:['holy-rescue'],flag:'story:holy-candle-2'},
+    {id:'b',label:'公开辩论救书',detail:'3日 · 礼仪考验 · 声望',days:3,skill:'礼仪',difficulty:22,reward:250,fame:8,follow:'你在广场上与奥古斯丁当众辩论，以病人的病历为据，为"知其所以然"争得一线转机。围观的信徒散去时，有人在柴垛上浇了水。枢机没有撤销命令，却也没有立刻点火。',npc:[{id:'holy-clara',trust:8},{id:'holy-augustine',interest:-6}],arc:{tension:-8,phase:2},setFlags:['holy-debate'],flag:'story:holy-candle-2'},
+    {id:'c',label:'以治疗成效说服枢机',detail:'4日 · 医术/礼仪考验',days:4,skill:'医术',difficulty:26,reward:400,follow:'你把热病患者的治疗全程整理成册，在枢机面前逐一展示：退烧、除斑、复元。奥古斯丁翻到最后一页，沉默良久，最终只说了句："病要治，书……再议。"',npc:[{id:'holy-rosa',trust:10},{id:'holy-augustine',trust:6}],arc:{scarcity:-6,tension:-6,phase:2},setFlags:['holy-prove'],flag:'story:holy-candle-2'},
+  ],
+  flags:['holy-rescue','holy-debate','holy-prove'],
 },
 ];

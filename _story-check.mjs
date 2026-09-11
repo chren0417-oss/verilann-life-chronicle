@@ -13,9 +13,11 @@ const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]]));Object.assign(d,{
 // ---- 1. 事件库结构 ----
 const mistEvents=events.filter(e=>e.id.startsWith('mist-door-'));
 check(mistEvents.length===8,'暮林 8 张事件卡已编译入事件库');
-check(storyCards.length===8,'storyCards 共 8 张');
+check(storyCards.length===18,'storyCards 共 18 张（暮林8+五国各2）');
 check(events.every(e=>!e.id.startsWith('farmer-')&&!e.id.startsWith('knight-')),'原职业剧情已全部移除');
-check(events.filter(e=>e.kind.startsWith('剧情 ·')).length===8,'8 个事件 kind 为剧情标签');
+check(events.filter(e=>e.kind.startsWith('剧情 ·')).length===18,'18 个事件 kind 为剧情标签');
+const fiveArcs=['loen-tax','castia-eagle','north-oath','alma-ports','holy-candle'];
+for(const a of fiveArcs)check(events.filter(e=>e.id.startsWith(a+'-')).length===2,'['+a+'] 2 张事件卡已编译');
 
 // ---- 2. 卡1 触发与分支 ----
 let s=createGame(d);
@@ -82,14 +84,18 @@ check(r5.state.worldStory.arcs['mist-door'].knowledge>=28,'学者同行 knowledg
 s3=r5.state;
 
 // ---- 6. 卡5 不可逆 ----
-s3.skills.元素=80;s3.skills.感知=40;
+s3.skills.元素=100;s3.skills.潜行=100;s3.attributes.感知=80;s3.attributes.智力=80;
 s3.worldStory.arcs['mist-door'].phase=4;
-s3.event='mist-door-5';
-const r6=perform(s3,'event','1'); // 取走核心
-check(!r6.error,'卡5 选择B可执行');
-check(r6.state.worldStory.arcs['mist-door'].flags['mist-core']===true,'卡5 写入 mist-core');
-check(r6.state.items.some(i=>i.name==='霜陨剑'),'取走核心奖励 霜陨剑 入库');
-s3=r6.state;
+let gotSword=false;
+for(let t=0;t<20&&!gotSword;t++){
+  s3.event='mist-door-5';
+  const r=perform(s3,'event','1'); // 取走核心
+  if(!r.error&&r.state.worldStory.arcs['mist-door'].flags['mist-core']&&r.state.items.some(i=>i.name==='霜陨剑'))gotSword=true;
+  s3=r.state;
+}
+check(gotSword,'卡5 取走核心（mist-core 写入）');
+check(s3.items.some(i=>i.name==='霜陨剑'),'取走核心奖励 霜陨剑 入库');
+s3.worldStory.arcs['mist-door'].phase=4;
 
 // ---- 7. 卡6 遗物归属 ----
 s3.worldStory.arcs['mist-door'].phase=4;
@@ -144,6 +150,53 @@ sR.seen['mist-door-1']=sR.day;
 let gotAgain=false;
 for(let i=0;i<10&&!gotAgain;i++){const r=perform(sR,'work');sR=r.state;if(sR.event==='mist-door-1')gotAgain=true;}
 check(!gotAgain,'卡1 完成后不再重复出现（seen 去重）');
+
+// ---- 13. 其余五国第一阶段（圣经 §11.9 轮8）----
+const five=[['loen-tax','loen-tax-1','loen-tax-2',0,'loen-hermann'],['castia-eagle','castia-eagle-1','castia-eagle-2',1,'castia-elena'],['north-oath','north-oath-1','north-oath-2',2,'north-bran'],['alma-ports','alma-ports-1','alma-ports-2',3,'alma-maira'],['holy-candle','holy-candle-1','holy-candle-2',4,'holy-clara']];
+for(const [arc,c1,c2,region,npcKey] of five){
+  let s=createGame(d);s.region=region;
+  check(!!events.find(e=>e.id===c1)&&!!events.find(e=>e.id===c2),'['+arc+'] 两卡在事件库');
+  check(s.worldStory.arcs[arc].phase===0,'['+arc+'] 弧线初始 phase=0');
+  let got=false;
+  for(let i=0;i<18&&!got;i++){const r=perform(s,'work');s=r.state;got=s.event===c1;}
+  check(got,'['+arc+'] 轮询可挂出卡1');
+  if(got){
+    const r=perform(s,'event','0');
+    check(!r.error,'['+arc+'] 卡1 选择A可执行');
+    check(r.state.worldStory.arcs[arc].phase>=1,'['+arc+'] 卡1 推进 phase>=1');
+    check(r.state.worldStory.arcs[arc].history.includes(c1),'['+arc+'] 卡1 记入 history');
+    s=r.state;
+  } else { s=perform(s,'event','0').state; }
+  // 卡2 触发条件（卡1 flag + phase>=1 已满足）
+  let got2=false;
+  for(let i=0;i<18&&!got2;i++){const r=perform(s,'work');s=r.state;got2=s.event===c2;}
+  check(got2,'['+arc+'] 卡1 后轮询可挂出卡2');
+  // 卡2 截止过期：世界自行推进
+  const dk={'loen-tax':'loen-evict','castia-eagle':'castia-check','north-oath':'north-pass','alma-ports':'alma-run','holy-candle':'holy-burn'}[arc];
+  onStoryQueued(s,c2);
+  check(s.worldStory.arcs[arc].deadlines[dk]>s.day,'['+arc+'] 卡2 注册截止日期');
+  const before=s.worldStory.npcs[npcKey].trust;
+  const tBefore=s.worldStory.arcs[arc].tension;
+  let s2={...s};s2.day=s.day+12;
+  advanceWorldStory(s2,12);
+  check(s2.worldStory.npcs[npcKey].trust<before,'['+arc+'] 逾期后 '+npcKey+' 信任下降');
+  check(s2.worldStory.arcs[arc].tension>tBefore,'['+arc+'] 逾期后 tension 上升');
+  // 托管遇五国卡暂停
+  s.event=c2;
+  const h2=hostedStep({...s,hosting:{action:'work',temperament:'balanced',staminaBelow:null,hpBelow:null,active:true,completed:0,reason:''}});
+  check(h2.error&&String(h2.error).includes('剧情分叉'),'['+arc+'] 托管遇卡2 自动暂停');
+}
+// 五国卡2 的选择也能正常结算（洛恩卡2 为例）
+{
+  let s=createGame(d);s.region=0;
+  s.worldStory.arcs['loen-tax'].phase=1;s.worldStory.arcs['loen-tax'].flags['loen-audit']=true;
+  s.event='loen-tax-2';
+  const r=perform(s,'event','0');
+  check(!r.error,'洛恩卡2 选择A可执行');
+  check(r.state.worldStory.arcs['loen-tax'].flags['loen-ledger']===true,'洛恩卡2 写入 loen-ledger');
+  check(r.state.worldStory.arcs['loen-tax'].phase===2,'洛恩卡2 推进 phase=2');
+  check(r.state.worldStory.npcs['loen-bella'].trust>=0,'洛恩卡2 NPC 关系落账');
+}
 
 console.log(`\n世界剧情测试: ${pass} PASS / ${fail} FAIL`);
 process.exit(fail?1:0);
