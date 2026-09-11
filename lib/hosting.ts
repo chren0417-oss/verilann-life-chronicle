@@ -1,4 +1,4 @@
-import {events,perform,money,difficulty,regions,adultAge,dungeons,playerTier,type Choice,type Game,type Hosting} from './game';
+import {events,perform,money,difficulty,regions,adultAge,dungeons,playerTier,effectiveMaxMana,maxHp,maxSpirit,maxStamina,type Choice,type Game,type Hosting} from './game';
 
 export type HostingStep={state:Game,action:string,reason:string,error?:string};
 
@@ -46,13 +46,25 @@ function autoPick(s:Game,h:Hosting):'work'|'explore'{const weekly=weeklyLiving(s
  if(s.cash<weekly*2)return {state:{...s,hosting:{...h,active:false,reason:'现金不足两周食宿（约'+money(weekly*2)+'），模拟已暂停，以免坐吃山空。请先手动工作或处理背包，再继续模拟。'}},action:'',reason:'现金不足，模拟已暂停。',error:'现金不足，模拟已暂停。'};
  if(s.pendingBattle)return {state:s,action:'',reason:'遇到战斗事件，请在模拟面板选择接受或逃跑。',error:'battle-pending'};
  if(s.battle&&!s.battle.done)return {state:s,action:'',reason:'战斗进行中，请在「冒险」面板完成战斗后再继续模拟。',error:'battle-running'};
+  if(s.battle&&s.battle.done&&!s.pendingBattle)return s.battle.won
+   ?{state:s,action:'',reason:'战斗胜利，经验与战利品已入账。请在模拟面板选择继续、恢复后继续或退出。',error:'battle-won-pending'}
+   :{state:{...s,hosting:{...h,active:false,reason:'战斗失利，模拟已暂停。请先处理伤势，再决定是否继续。'}},action:'',reason:'战斗失利，模拟已暂停。',error:'battle-lost'};
  if(s.event){const ev=events.find(e=>e.id===s.event);if(ev&&ev.choices.some(c=>c.flag))return {state:s,action:'',reason:'遇到剧情分叉点，已暂停模拟，请手动做出选择。',error:'遇到剧情分叉点，请手动做出选择。'};const index=chooseHostedEvent(s);if(index===null)return {state:{...s,hosting:{...h,active:false,reason:'当前事件没有符合模拟规则的可选方案。'}},action:'',reason:'当前事件没有符合模拟规则的可选方案。',error:'当前事件没有符合模拟规则的可选方案。'};const result=perform(s,'event',String(index));if(result.error)return {state:{...s,hosting:{...h,active:false,reason:result.error}},action:'event',reason:result.error,error:result.error};const evLabel=ev?ev.title+' → '+(ev.choices[Number(index)]?.label||'处理'):'事件已自动处理';return {state:{...result.state,hosting:{...h,active:true,completed:h.completed+1,reason:'已自动处理事件：'+evLabel}},action:'event',reason:'已自动处理事件：'+evLabel};}
  const pendingQuest=s.quests.find(q=>q.status==='进行中');
  if(pendingQuest&&s.skills[pendingQuest.skill]>=pendingQuest.need&&s.day+3<=pendingQuest.due){const dr=perform(s,'deliver');if(!dr.error)return {state:{...dr.state,hosting:{...h,resting:false,active:true,completed:h.completed+1,reason:'已按时交付委托，获得报酬。'}},action:'deliver',reason:'已完成委托交付。'};}
  const bt=s.quests.find(q=>q.status==='进行中'&&q.kind==='战斗');
  if(bt&&s.turn-(bt.fledAt??-999)>=15)return {state:{...s,pendingBattle:{kind:'战斗任务',questId:bt.id,title:bt.title,desc:bt.desc||'',target:bt.target||'mine',reward:bt.reward}},action:'',reason:'讨伐任务等待回应，请在模拟面板选择接受或逃跑。',error:'battle-pending'};
  const rr=((s.seed||7)*(s.turn+13)*31)%97;if(rr<2&&!s.pendingBattle){return {state:{...s,pendingBattle:{kind:'遭遇',title:'路遇拦路者',desc:'林间闪出几个持械身影，要你留下买路钱。此战避无可避，也可破财免灾。',target:'ambush'}},action:'',reason:'遭遇战斗事件，请在模拟面板选择接受或逃跑。',error:'battle-pending'};}
- let action=shouldRest(s,h)?'rest':autoPick(s,h);
+ if(h.recovering){
+  const s2={...s,day:s.day+1,hp:Math.min(maxHp(s),s.hp+Math.round(maxHp(s)*.5)),stamina:Math.min(maxStamina(s),s.stamina+Math.round(maxStamina(s)*.5)),spirit:Math.min(maxSpirit(s),s.spirit+Math.round(maxSpirit(s)*.5)),mana:Math.min(effectiveMaxMana(s),s.mana+Math.round(effectiveMaxMana(s)*.5)),injury:Math.max(0,s.injury-20)};
+  const done=s2.hp>=maxHp(s)&&s2.stamina>=maxStamina(s)&&s2.spirit>=maxSpirit(s)&&s2.mana>=effectiveMaxMana(s)&&s2.injury<=0;
+  const bt2=s.quests.find(q=>q.status==='进行中'&&q.kind==='战斗');
+  if(bt2&&s.turn-(bt2.fledAt??-999)>=15)return {state:{...s2,pendingBattle:{kind:'战斗任务',questId:bt2.id,title:bt2.title,desc:bt2.desc||'',target:bt2.target||'mine',reward:bt2.reward}},action:'',reason:'恢复途中接到讨伐任务，请在模拟面板选择接受或逃跑。',error:'battle-pending'};
+  const rr2=((s.seed||7)*(s.turn+13)*31+h.completed*13)%97;
+  if(rr2<2)return {state:{...s2,pendingBattle:{kind:'遭遇',title:'路遇拦路者',desc:'恢复途中，林间闪出几个持械身影。',target:'ambush'}},action:'',reason:'恢复途中遭遇战斗事件，请在模拟面板选择接受或逃跑。',error:'battle-pending'};
+  return {state:{...s2,hosting:{...h,recovering:done?false:true,resting:false,active:true,completed:h.completed+1,reason:done?'已恢复至最佳状态，继续行动。':'恢复休养中……'}},action:'recover',reason:done?'已恢复至巅峰，继续行动。':'恢复一日，状态好转。'};
+}
+let action=shouldRest(s,h)?'rest':autoPick(s,h);
  if(s.injury>30&&s.cash>=120)action='heal';
  if(action!=='rest'&&action!=='heal'&&h.action==='explore'){
   if(h.forcedWork){if(s.cash>=weekly*8)h={...h,forcedWork:false};else action='work';}
