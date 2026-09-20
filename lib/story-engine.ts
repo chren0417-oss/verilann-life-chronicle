@@ -23,7 +23,7 @@ export function compileStoryEvents(cards:StoryCard[]):Event[]{
     choices:c.choices.map(ch=>({
       label:ch.label,detail:ch.detail,days:ch.days,cost:ch.cost,skill:ch.skill,
       difficulty:ch.difficulty,reward:ch.reward,item:ch.item,fame:ch.fame,hurt:ch.hurt,
-      follow:ch.follow,flag:ch.flag,
+      follow:ch.follow,flag:ch.flag,battle:ch.battle,failFollow:ch.failFollow,failFlags:ch.failFlags,
     })),
   }));
 }

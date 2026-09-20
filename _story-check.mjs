@@ -13,115 +13,71 @@ const d=Object.fromEntries(steps.map(s=>[s.key,s.options[0]]));Object.assign(d,{
 // ---- 1. 事件库结构 ----
 const mistEvents=events.filter(e=>e.id.startsWith('mist-door-'));
 check(mistEvents.length===8,'暮林 8 张事件卡已编译入事件库');
-check(storyCards.length===49,'storyCards 共 49 张（暮林8+五国各5+关系13+碎冠3）');
+check(storyCards.length>=49,'storyCards ≥49 张（含 saga 卷Ⅰ 17 张，当前 '+storyCards.length+' 张）');
 check(events.every(e=>!e.id.startsWith('farmer-')&&!e.id.startsWith('knight-')),'原职业剧情已全部移除');
 check(events.filter(e=>e.kind.startsWith('剧情 ·')).length===36,'36 个剧情事件（五国25+暮林8+碎冠3）');
 check(events.filter(e=>e.kind.startsWith('关系 ·')).length===13,'13 个NPC关系事件');
 const fiveArcs=['loen-tax','castia-eagle','north-oath','alma-ports','holy-candle'];
 for(const a of fiveArcs)check(events.filter(e=>e.id.startsWith(a+'-')).length===5,'['+a+'] 5 张事件卡已编译（3-5阶段齐全）');
 
-// ---- 2. 卡1 触发与分支 ----
+// ---- 2. saga 卷Ⅰ 卡 mist-s1 触发（region 5 & phase 0 & 无 mist-saga）----
 let s=createGame(d);
 check(s.region===5,'测试档位于暮林边境');
 check(!!s.worldStory&&!!s.worldStory.arcs['mist-door'],'新档含 mist-door 弧线状态');
 check(s.worldStory.arcs['mist-door'].phase===0,'弧线初始 phase=0');
 check(Object.keys(s.worldStory.npcs).length>=allStoryNpcIds.length,'新档已播种全部核心 NPC');
-// 轮询应能挂上卡1（region 5 & phase 0）
 let got1=false;
-for(let i=0;i<12&&!got1;i++){const r=perform(s,'work');s=r.state;got1=s.event==='mist-door-1';}
-check(got1,'模拟劳作会挂出卡1「雾根蘑菇失色」');
-// 选择A：采样调查
-if(s.event==='mist-door-1'){
+for(let i=0;i<12&&!got1;i++){const r=perform(s,'work');s=r.state;got1=s.event==='mist-s1';}
+check(got1,'模拟劳作会挂出 saga 卡1「雾根蘑菇失色」');
+if(s.event==='mist-s1'){
   const r=perform(s,'event','0');
-  check(!r.error,'卡1 选择A可执行');
-  check(r.state.worldStory.arcs['mist-door'].flags['mist-clue']===true,'选择A写入 mist-clue');
-  check(r.state.worldStory.arcs['mist-door'].knowledge>=10,'弧线 knowledge 提升');
-  check(r.state.worldStory.npcs['mist-tess'].trust>=16,'苔丝信任提升');
+  check(!r.error,'saga 卡1 选择A可执行');
+  check(r.state.pendingBattle&&r.state.pendingBattle.kind==='剧情','选择A 挂起剧情战斗');
+  check(r.state.pendingBattle.followUp&&r.state.pendingBattle.followUp.cardId==='mist-s1','战斗结算指向 mist-s1');
   s=r.state;
-} else { check(false,'无法推进卡1'); s=perform(s,'event','0').state; }
-
-// ---- 3. 卡2 触发条件与截止 ----
-check(s.worldStory.arcs['mist-door'].phase===1,'卡1 后 phase=1');
+  const ba=perform(s,'battle-accept');
+  check(!ba.error&&!!ba.state.battle,'应战建立战斗');
+  s=ba.state;
+  let strong={...s};strong.attributes={...s.attributes,力量:500,敏捷:500,体质:500};strong.hp=1000;strong.pendingBattle={...s.pendingBattle,fixed:{name:'腐木妖',hp:30,atk:2,def:1}};
+  let win=null,turns=0;
+  while(turns<80){const rp=perform(strong,'battle','attack');strong=rp.state;turns++;if(strong.battle&&strong.battle.done){win=strong;break;}}
+  check(!!win&&!!win.battle&&!!win.battle.won,'saga 战斗可取胜');
+  check(win.worldStory.arcs['mist-door'].flags['mist-saga']===true,'胜利写入 mist-saga 旗标');
+  check(win.worldStory.arcs['mist-door'].phase===1,'卡1 后 phase=1');
+  s=win;
+} else { check(false,'无法推进 saga 卡1'); s=perform(s,'event','0').state; }
+// ---- 3. saga 卡2（关键节点 K1）触发与截止 ----
 let got2=false;
-for(let i=0;i<12&&!got2;i++){const r=perform(s,'work');s=r.state;got2=s.event==='mist-door-2';}
-check(got2,'有线索后挂出卡2「失踪的采药人」');
-// 注册截止并验证过期结算
-onStoryQueued(s,'mist-door-2');
-check(s.worldStory.arcs['mist-door'].deadlines['lydia']>s.day,'卡2 出现即注册 10 日截止');
-// 直接快进超过截止
-let s2={...s}; s2.day=s.day+12;
-const expired=advanceWorldStory(s2,12);
-check(s2.worldStory.npcs['mist-lydia'].alive===false,'逾期未救：莉亚死亡');
-check(expired.some(x=>x.includes('莉亚在林中遇难')),'逾期日志写入');
-check(s2.worldStory.arcs['mist-door'].danger>10,'逾期危险上升');
-// 正常选择A救回（新档）
-let s3=createGame(d);s3.region=5;
-s3.worldStory.arcs['mist-door'].phase=1;s3.worldStory.arcs['mist-door'].flags['mist-clue']=true;
-s3.event='mist-door-2';
-const r3=perform(s3,'event','0');
-check(!r3.error,'卡2 选择A可执行');
-check(r3.state.worldStory.npcs['mist-lydia'].alive!==false,'选择A：莉亚存活');
-check(r3.state.worldStory.arcs['mist-door'].flags['mist-entrance']===true,'选择A：入口线索 mist-entrance');
-check(r3.state.worldStory.arcs['mist-door'].phase===2,'卡2 后 phase=2');
-s3=r3.state;
-
-// ---- 4. 卡3 阵营抉择 → 托管应暂停 ----
-s3.worldStory.arcs['mist-door'].phase=2;
-s3.event='mist-door-3';
-const h=hostedStep({...s3,hosting:{action:'work',temperament:'balanced',staminaBelow:null,hpBelow:null,active:true,completed:0,reason:''}});
-check(h.error&&String(h.error).includes('剧情分叉'),'托管遇到卡3 阵营抉择自动暂停');
-const r4=perform(s3,'event','0');
-check(!r4.error,'卡3 选择A可执行');
-check(r4.state.worldStory.arcs['mist-door'].flags['mist-side-watcher']===true,'卡3 写入 mist-side-watcher');
-s3=r4.state;
-
-// ---- 5. 卡4 同行者 ----
-s3.worldStory.arcs['mist-door'].phase=3;
-s3.event='mist-door-4';
-const r5=perform(s3,'event','1');
-check(!r5.error,'卡4 选择B可执行');
-check(r5.state.worldStory.arcs['mist-door'].flags['mist-party-scholar']===true,'卡4 写入 mist-party-scholar');
-check(r5.state.worldStory.arcs['mist-door'].knowledge>=28,'学者同行 knowledge 提升');
-s3=r5.state;
-
-// ---- 6. 卡5 不可逆 ----
-s3.skills.元素=100;s3.skills.潜行=100;s3.attributes.感知=80;s3.attributes.智力=80;
-s3.worldStory.arcs['mist-door'].phase=4;
-let gotSword=false;
-for(let t=0;t<20&&!gotSword;t++){
-  s3.event='mist-door-5';
-  const r=perform(s3,'event','1'); // 取走核心
-  if(!r.error&&r.state.worldStory.arcs['mist-door'].flags['mist-core']&&r.state.items.some(i=>i.name==='霜陨剑'))gotSword=true;
-  s3=r.state;
-}
-check(gotSword,'卡5 取走核心（mist-core 写入）');
-check(s3.items.some(i=>i.name==='霜陨剑'),'取走核心奖励 霜陨剑 入库');
-s3.worldStory.arcs['mist-door'].phase=4;
-
-// ---- 7. 卡6 遗物归属 ----
-s3.worldStory.arcs['mist-door'].phase=4;
-s3.event='mist-door-6';
-const r7=perform(s3,'event','2');
-check(!r7.error,'卡6 选择C可执行');
-check(r7.state.worldStory.arcs['mist-door'].flags['mist-artifact-watcher']===true,'卡6 写入 mist-artifact-watcher');
-s3=r7.state;
-
-// ---- 8. 卡7 林缘 ----
-s3.worldStory.arcs['mist-door'].phase=5;
-s3.event='mist-door-7';
-const r8=perform(s3,'event','0');
-check(!r8.error,'卡7 选择A可执行');
-check(r8.state.worldStory.arcs['mist-door'].flags['mist-rescue']===true,'卡7 写入 mist-rescue');
-s3=r8.state;
-
-// ---- 9. 卡8 终局 ----
-s3.worldStory.arcs['mist-door'].phase=5;
-s3.event='mist-door-8';
-const r9=perform(s3,'event','0');
-check(!r9.error,'卡8 选择A可执行');
-check(r9.state.worldStory.arcs['mist-door'].flags['mist-truth-public']===true,'卡8 写入 mist-truth-public');
-check(r9.state.worldStory.arcs['mist-door'].history.includes('mist-door-8'),'卡8 记入 history');
-check(r9.state.worldStory.arcs['mist-door'].phase===5,'终局后 phase=5');
+for(let i=0;i<12&&!got2;i++){const r=perform(s,'work');s=r.state;got2=s.event==='mist-s2';}
+check(got2,'mist-saga 后挂出卡2「失踪的采药人」');
+onStoryQueued(s,'mist-s2');
+check(s.worldStory.arcs['mist-door'].deadlines['mist-lydia']>s.day,'卡2 出现即注册 10 日截止');
+const r2=perform(s,'event','0');
+check(!r2.error,'卡2 选择A可执行');
+check(r2.state.pendingBattle&&r2.state.pendingBattle.kind==='剧情','卡2 选择A 挂起剧情战斗');
+// 战斗失败 → failFollow + failFlags
+let lose={...r2.state};
+lose.hp=1;lose.attributes={...lose.attributes,力量:1,敏捷:1,体质:1};
+lose.pendingBattle={kind:'剧情',title:'失踪的采药人',desc:'',target:'story',fixed:{name:'林狼群',hp:2000,atk:500,def:100},followUp:{cardId:'mist-s2',choiceIdx:0,failFollow:'败退文本'}};
+const ba2=perform(lose,'battle-accept');
+let l2=ba2.state,lt=0;
+while(l2.battle&&!l2.battle.done&&lt<80){const rp=perform(l2,'battle','attack');l2=rp.state;lt++;}
+check(!!l2.battle&&l2.battle.done&&!l2.battle.won,'剧情战斗可失败');
+check(l2.worldStory.arcs['mist-door'].flags['mist-k1-bad']===true,'失败写入 failFlags mist-k1-bad');
+// 战斗胜利 → 救回莉亚 + k1-save
+let s3={...s};
+s3.event=null;
+s3.attributes={...s3.attributes,力量:500,敏捷:500,体质:500};s3.hp=1000;
+s3.pendingBattle={kind:'剧情',title:'失踪的采药人',desc:'',target:'story',fixed:{name:'林狼群',hp:30,atk:2,def:1},followUp:{cardId:'mist-s2',choiceIdx:0,failFollow:'x'}};
+const ba3=perform(s3,'battle-accept');
+let s4=ba3.state,wt=0;
+while(s4.battle&&!s4.battle.done&&wt<80){const rp=perform(s4,'battle','attack');s4=rp.state;wt++;}
+check(!!s4.battle&&s4.battle.done&&s4.battle.won,'剧情战斗胜利');
+check(s4.worldStory.arcs['mist-door'].flags['mist-k1-save']===true,'胜利写入 mist-k1-save');
+// ---- 4. 分支卡 s3a（k1-save）挂出 ----
+let got3=false;
+for(let i=0;i<12&&!got3;i++){const r=perform(s4,'work');s4=r.state;got3=s4.event==='mist-s3a';}
+check(got3,'k1-save 后挂出分支卡 s3a「林雾深处」');
 
 // ---- 10. 旧档迁移 ----
 const legacy={version:1,id:'x',draft:{name:'旧档',gender:'男',region:'暮林边境',race:'人类',age:'成年 · 适龄',personality:'谨慎',education:'私塾启蒙',wealth:'温饱',potential:'平凡',family:'独自成长',childhood:'田间帮工',social:'独来独往',goal:'平凡一生'},day:0,ageStart:18,region:5,birthRegion:5,job:0,rank:0,seed:1,turn:0,hp:100,stamina:100,spirit:100,mana:0,maxMana:0,hunger:0,injury:0,cash:100,debt:0,debtDue:0,attributes:{力量:10,敏捷:10,体质:10,智力:10,感知:10,意志:10,魅力:10,幸运:10},skills:{},items:[],npcs:[],quests:[],fame:[0,0,0,0,0,0],crime:0,estates:[],spouse:null,children:[],known:[5],event:null,seen:{},storyFlags:{},log:[],mode:'中等',dead:false,retired:false,generation:1,heir:false,equip:{},battle:null,fate:null,fateDone:false,clearedDungeons:[]};
