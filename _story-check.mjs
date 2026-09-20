@@ -60,7 +60,19 @@ if(s.event==='mist-s1'){
 } else { check(false,'无法推进 saga 卡1'); s=perform(s,'event','0').state; }
 // ---- 3. saga 卡2（关键节点 K1）触发与截止 ----
 let got2=false;
-for(let i=0;i<12&&!got2;i++){const r=perform(s,'work');s=r.state;got2=s.event==='mist-s2';}
+for(const pre of ['mist-s1-5','mist-s1-6','mist-s1-7']){
+  let gotPre=false;
+  for(let i=0;i<15&&!gotPre;i++){
+    if(s.stamina<40&&!s.event){const rr=perform(s,'rest');s=rr.state;if(s.event===pre){gotPre=true;break;}}
+    const r=perform(s,'work');s=r.state;gotPre=s.event===pre;
+  }
+  check(gotPre,'中段挂出 '+pre);
+  if(gotPre)s=perform(s,'event','0').state;
+}
+for(let i=0;i<12&&!got2;i++){
+  if(s.stamina<40&&!s.event){const rr=perform(s,'rest');s=rr.state;if(s.event==='mist-s2'){got2=true;break;}}
+  const r=perform(s,'work');s=r.state;got2=s.event==='mist-s2';
+}
 check(got2,'mist-saga 后挂出卡2「失踪的采药人」');
 onStoryQueued(s,'mist-s2');
 check(s.worldStory.arcs['mist-door'].deadlines['mist-lydia']>s.day,'卡2 出现即注册 10 日截止');
