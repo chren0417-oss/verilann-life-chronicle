@@ -27,7 +27,19 @@ check(!!s.worldStory&&!!s.worldStory.arcs['mist-door'],'新档含 mist-door 弧�
 check(s.worldStory.arcs['mist-door'].phase===0,'弧线初始 phase=0');
 check(Object.keys(s.worldStory.npcs).length>=allStoryNpcIds.length,'新档已播种全部核心 NPC');
 let got1=false;
-for(let i=0;i<12&&!got1;i++){const r=perform(s,'work');s=r.state;got1=s.event==='mist-s1';}
+for(const pre of ['mist-s0-1','mist-s0-2','mist-s0-3','mist-s0-4']){
+  let gotPre=false;
+  for(let i=0;i<20&&!gotPre;i++){
+    if(s.stamina<40&&!s.event){const rr=perform(s,'rest');s=rr.state;if(s.event===pre){gotPre=true;break;}}
+    const r=perform(s,'work');s=r.state;gotPre=s.event===pre;
+  }
+  check(gotPre,'序章挂出 '+pre);
+  if(gotPre)s=perform(s,'event','0').state;
+}
+for(let i=0;i<16&&!got1;i++){
+  if(s.stamina<40&&!s.event){const rr=perform(s,'rest');s=rr.state;if(s.event==='mist-s1'){got1=true;break;}}
+  const r=perform(s,'work');s=r.state;got1=s.event==='mist-s1';
+}
 check(got1,'模拟劳作会挂出 saga 卡1「雾根蘑菇失色」');
 if(s.event==='mist-s1'){
   const r=perform(s,'event','0');
